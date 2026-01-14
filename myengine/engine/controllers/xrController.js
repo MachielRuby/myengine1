@@ -175,8 +175,18 @@ export class XRController {
 
             console.log('XRController: 正在请求 AR 会话，配置:', sessionOptions);
             const session = await navigator.xr.requestSession('immersive-ar', sessionOptions);
-            console.log('XRController: AR 会话已创建');
-            return await this._initializeSession(session);
+            console.log('XRController: AR 会话已创建，会话信息:', {
+                mode: session.mode,
+                enabledFeatures: session.enabledFeatures,
+                inputSources: session.inputSources?.length || 0
+            });
+            
+            // 初始化会话，如果失败会抛出错误
+            const success = await this._initializeSession(session);
+            if (!success) {
+                throw new Error('会话初始化返回 false，但未抛出错误');
+            }
+            return success;
         } catch (e) {
             // 提供更详细的错误信息
             let errorMessage = '启动 AR 失败';
@@ -382,17 +392,37 @@ export class XRController {
             this._setupControllers(session.inputSources);
 
             // 初始化 AR 功能
-            await this.initializeHitTest();
+            try {
+                await this.initializeHitTest();
+                console.log('XRController: 命中测试已初始化');
+            } catch (e) {
+                console.warn('XRController: 初始化命中测试失败（非致命）:', e);
+                // 命中测试失败不是致命错误，继续执行
+            }
 
             this.isPresenting = true;
             this.events.emit('xr:ar:started', { session });
+            console.log('XRController: AR 会话初始化完成');
 
             return true;
         } catch (e) {
-            console.error('XRController: 初始化会话失败:', e);
+            console.error('XRController: 初始化会话失败:', {
+                name: e.name,
+                message: e.message,
+                stack: e.stack,
+                error: e
+            });
+            
+            // 清理会话
             this.session = null;
-            this.events.emit('xr:ar:error', { message: '初始化会话失败', error: e });
-            return false;
+            this.referenceSpace = null;
+            this.viewerSpace = null;
+            
+            // 抛出错误，让调用者知道具体原因
+            const error = new Error(`初始化 AR 会话失败: ${e.message || '未知错误'}`);
+            error.originalError = e;
+            this.events.emit('xr:ar:error', { message: error.message, error: e });
+            throw error;
         }
     }
 
