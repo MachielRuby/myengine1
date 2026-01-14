@@ -493,10 +493,10 @@ export class XRController {
                 // 命中测试失败不是致命错误，继续执行
             }
 
-            // 创建十字星（用于显示可放置位置）
+            // 创建十字星
             this._createReticle();
             
-            // 设置点击事件监听（点击时直接放置模型）
+            // 设置点击事件监听
             this._setupClickHandler();
 
             // 确保渲染器启用 XR
@@ -505,8 +505,6 @@ export class XRController {
                 console.log('XRController: 已启用渲染器 XR 支持');
             }
             
-            // 设置 Three.js XR 渲染循环
-            // 注意：Three.js XR 会自动渲染场景，我们只需要更新逻辑
             if (this.renderer && this.renderer.setAnimationLoop) {
                 this.renderer.setAnimationLoop((time, frame) => {
                     if (frame) {
@@ -568,10 +566,8 @@ export class XRController {
             this.renderer.setAnimationLoop(null);
             console.log('XRController: 已恢复正常渲染循环');
         }
-        
         // 清理
         this._cleanup();
-        
         this.events.emit('xr:ar:ended');
     }
 
