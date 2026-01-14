@@ -505,28 +505,10 @@ export class XRController {
                 console.log('XRController: 已启用渲染器 XR 支持');
             }
             
-            if (this.renderer && this.renderer.setAnimationLoop) {
-                this.renderer.setAnimationLoop((time, frame) => {
-                    if (frame) {
-                        // 在AR模式下，调用update方法更新十字星和锚点
-                        this.update(frame);
-                        
-                        // 确保场景和十字星更新
-                        if (this.scene) {
-                            this.scene.updateMatrixWorld(true);
-                            
-                            // 确保十字星可见
-                            if (this.reticle) {
-                                this.reticle.visible = true;
-                                this.reticle.updateMatrix();
-                            }
-                        }
-                    }
-                });
-                console.log('XRController: XR 渲染循环已设置');
-            } else {
-                console.warn('XRController: 渲染器不支持 setAnimationLoop');
-            }
+            // 使用手动渲染循环（参考 React Three XR 的实现）
+            // 这样可以完全控制渲染过程，确保场景被正确渲染
+            this._startManualRenderLoop();
+            console.log('XRController: 手动渲染循环已启动');
 
             this.isPresenting = true;
             this.events.emit('xr:ar:started', { session });
@@ -561,11 +543,15 @@ export class XRController {
     _onSessionEnd() {
         this.isPresenting = false;
         
+        // 停止手动渲染循环
+        this._stopManualRenderLoop();
+        
         // 恢复正常的渲染循环
         if (this.renderer && this.renderer.setAnimationLoop) {
             this.renderer.setAnimationLoop(null);
             console.log('XRController: 已恢复正常渲染循环');
         }
+        
         // 清理
         this._cleanup();
         this.events.emit('xr:ar:ended');
@@ -853,6 +839,80 @@ export class XRController {
         return button;
     }
 
+    /**
+     * 启动手动渲染循环（参考 React Three XR 的实现）
+     * @private
+     */
+    _startManualRenderLoop() {
+        if (!this.session) {
+            console.warn('XRController: 无法启动渲染循环，会话不存在');
+            return;
+        }
+        
+        // 保存动画帧ID，用于停止循环
+        this._animationFrameId = null;
+        
+        // 定义渲染函数
+        const onXRFrame = (time, frame) => {
+            if (!this.session || !this.isPresenting) {
+                return;
+            }
+            
+            // 继续下一帧
+            this._animationFrameId = this.session.requestAnimationFrame(onXRFrame);
+            
+            // 获取渲染层
+            const glLayer = this.session.renderState.baseLayer;
+            if (!glLayer) {
+                return;
+            }
+            
+            // 设置渲染器大小
+            this.renderer.setSize(glLayer.framebufferWidth, glLayer.framebufferHeight);
+            this.renderer.clear();
+            
+            // 获取观察者姿态
+            const pose = frame.getViewerPose(this.referenceSpace);
+            if (!pose) {
+                return;
+            }
+            
+            // 渲染每个视图（AR通常是单视图，但保持兼容性）
+            for (const view of pose.views) {
+                const viewport = this.renderer.xr.getViewport(view);
+                this.renderer.setViewport(viewport.x, viewport.y, viewport.width, viewport.height);
+                
+                // 更新相机投影矩阵
+                this.camera.projectionMatrix.fromArray(view.projectionMatrix);
+                
+                // 更新相机视图矩阵
+                const viewMatrix = new Matrix4().fromArray(view.transform.matrix);
+                this.camera.matrixWorldInverse.copy(viewMatrix);
+                this.camera.updateMatrixWorld(true);
+                
+                // 更新十字星和hit-test
+                this.update(frame);
+                
+                // 手动渲染场景
+                this.renderer.render(this.scene, this.camera);
+            }
+        };
+        
+        // 启动第一帧
+        this._animationFrameId = this.session.requestAnimationFrame(onXRFrame);
+        console.log('XRController: 手动渲染循环已启动');
+    }
+    
+    /**
+     * 停止手动渲染循环
+     * @private
+     */
+    _stopManualRenderLoop() {
+        // 注意：我们无法直接取消 requestAnimationFrame，但会在下一帧检查 isPresenting
+        this._animationFrameId = null;
+        console.log('XRController: 手动渲染循环已停止');
+    }
+    
     /**
      * 更新方法（每帧调用）
      * @param {XRFrame} frame - XR 帧
