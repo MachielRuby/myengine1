@@ -289,7 +289,8 @@ export class ModelLoader {
   // 初始化Draco压缩解码器
   initDracoLoader() {
     this.dracoLoader = new DRACOLoader(this.loadingManager);
-    this.dracoLoader.setDecoderPath('https://static.fczsyx.com/script/webgl/three/examples/jsm/libs/draco/');
+    // 使用 public 目录下的解码器文件（Vite 会将 public 目录映射到根路径）
+    this.dracoLoader.setDecoderPath('/libs/draco/gltf/');
     this.dracoLoader.setDecoderConfig({ type: 'js' }); // 使用JS解码器更兼容
     this.dracoLoader.preload(); // 预加载解码器
   }
@@ -299,7 +300,8 @@ export class ModelLoader {
     if (this.renderer) {
       this.ktx2Loader = new KTX2Loader(this.loadingManager);
       this.ktx2Loader.crossOrigin = 'anonymous';
-      this.ktx2Loader.setTranscoderPath('https://static.fczsyx.com/script/webgl/three/examples/jsm/libs/basis/');
+      // 使用 public 目录下的解码器文件（Vite 会将 public 目录映射到根路径）
+      this.ktx2Loader.setTranscoderPath('/libs/basis/');
       this.ktx2Loader.detectSupport(this.renderer);
     }
   }
