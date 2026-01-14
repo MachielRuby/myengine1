@@ -41,6 +41,7 @@ export class XRController {
         this.hitTestSourceRequested = false;
         this.referenceSpace = null; 
         this.viewerSpace = null;
+        this.reticle = null; // 十字星对象
         this.currentHitMatrix = null; // 当前命中测试的矩阵
         this._hasHitTestResult = false; // 是否有 hit-test 结果
         
@@ -492,6 +493,9 @@ export class XRController {
                 // 命中测试失败不是致命错误，继续执行
             }
 
+            // 创建十字星（用于显示可放置位置）
+            this._createReticle();
+            
             // 设置点击事件监听（点击时直接放置模型）
             this._setupClickHandler();
 
@@ -583,6 +587,16 @@ export class XRController {
         this.anchors.clear();
         this.anchoredObjects.clear();
 
+        // 清理十字星
+        if (this.reticle) {
+            this.scene.remove(this.reticle);
+            this.reticle.traverse((child) => {
+                if (child.geometry) child.geometry.dispose();
+                if (child.material) child.material.dispose();
+            });
+            this.reticle = null;
+        }
+        
         this.currentHitMatrix = null;
         
         // 移除点击监听器
@@ -839,7 +853,17 @@ export class XRController {
             console.log('XRController: update 被调用，hitTestSource:', !!this.hitTestSource, 'reticle:', !!this.reticle);
         }
 
-        // 更新命中测试（用于点击时获取位置）
+        // 更新命中测试和十字星
+        if (!this.reticle) {
+            // 如果十字星未创建，尝试创建
+            this._createReticle();
+        }
+        
+        // 确保十字星始终可见
+        if (this.reticle) {
+            this.reticle.visible = true;
+        }
+        
         if (this.hitTestSource) {
             const hitTestResults = this.getHitTestResults(frame);
             
@@ -847,23 +871,36 @@ export class XRController {
                 const hit = hitTestResults[0];
                 const pose = hit.getPose(this.referenceSpace);
                 
-                if (pose) {
-                    // 保存当前命中矩阵，用于点击时放置模型
+                if (pose && this.reticle) {
+                    // 更新十字星位置 - 使用 hit-test 结果
                     const matrix = this._tempMatrix.fromArray(pose.transform.matrix);
+                    
+                    // 直接复制矩阵
+                    this.reticle.matrix.copy(matrix);
+                    this.reticle.matrixAutoUpdate = false;
+                    this.reticle.visible = true;
+                    
+                    // 不透明显示（有 hit-test 结果）
+                    this.reticle.traverse((child) => {
+                        if (child.material) {
+                            child.material.opacity = 1.0;
+                            child.material.transparent = false;
+                        }
+                    });
+                    
+                    // 保存当前命中矩阵，用于点击时放置模型
                     this.currentHitMatrix = matrix.clone();
                     this._hasHitTestResult = true;
                     
                     this.events.emit('xr:hit-test:results', { results: hitTestResults, frame });
                 }
             } else {
-                // 没有命中测试结果，清除当前矩阵
-                this.currentHitMatrix = null;
-                this._hasHitTestResult = false;
+                // 没有命中测试结果，显示降级十字星（相机前方）
+                this._showFallbackReticle(frame);
             }
         } else {
-            // 没有hit-test源，清除当前矩阵
-            this.currentHitMatrix = null;
-            this._hasHitTestResult = false;
+            // 没有hit-test源，显示降级十字星（相机前方）
+            this._showFallbackReticle(frame);
         }
 
         // 更新锚点
