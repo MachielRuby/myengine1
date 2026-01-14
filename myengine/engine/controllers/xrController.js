@@ -352,25 +352,56 @@ export class XRController {
                 throw new Error('渲染器不支持 XR.setSession');
             }
 
-            // 设置渲染器的 XR 会话
+            // 先初始化参考空间 - 尝试多种类型，按优先级降级
+            // 必须在设置渲染器会话之前完成，因为 Three.js 的 setSession 可能会使用默认参考空间
+            const referenceSpaceTypes = ['local', 'local-floor', 'bounded-floor', 'unbounded'];
+            let referenceSpaceInitialized = false;
+            let selectedSpaceType = null;
+            
+            for (const spaceType of referenceSpaceTypes) {
+                try {
+                    console.log(`XRController: 尝试请求参考空间类型: ${spaceType}`);
+                    this.referenceSpace = await session.requestReferenceSpace(spaceType);
+                    selectedSpaceType = spaceType;
+                    console.log(`XRController: 成功使用参考空间类型: ${spaceType}`);
+                    referenceSpaceInitialized = true;
+                    break;
+                } catch (e) {
+                    console.warn(`XRController: 参考空间类型 ${spaceType} 不支持:`, e.message);
+                    // 继续尝试下一个类型
+                }
+            }
+            
+            if (!referenceSpaceInitialized) {
+                throw new Error(`设备不支持任何可用的参考空间类型。尝试的类型: ${referenceSpaceTypes.join(', ')}`);
+            }
+
+            // 设置渲染器的 XR 会话和参考空间类型
             try {
+                // 如果 Three.js 支持设置参考空间类型，先设置它
+                if (this.renderer.xr.setReferenceSpaceType && selectedSpaceType) {
+                    this.renderer.xr.setReferenceSpaceType(selectedSpaceType);
+                    console.log(`XRController: 设置渲染器参考空间类型为: ${selectedSpaceType}`);
+                }
+                
                 await this.renderer.xr.setSession(session);
                 console.log('XRController: 渲染器 XR 会话已设置');
             } catch (e) {
-                throw new Error(`设置渲染器 XR 会话失败: ${e.message}`);
-            }
-
-            // 初始化参考空间
-            try {
-                this.referenceSpace = await session.requestReferenceSpace('local');
-                console.log('XRController: 参考空间已初始化');
-            } catch (e) {
-                // 尝试使用 'local-floor' 作为降级方案
-                try {
-                    this.referenceSpace = await session.requestReferenceSpace('local-floor');
-                    console.log('XRController: 使用 local-floor 参考空间');
-                } catch (e2) {
-                    throw new Error(`初始化参考空间失败: ${e.message}`);
+                // 如果设置会话失败，尝试不指定参考空间类型
+                if (e.message && e.message.includes('reference space')) {
+                    console.warn('XRController: 设置会话时出现参考空间错误，尝试使用默认设置');
+                    try {
+                        // 重置参考空间类型，让 Three.js 使用默认值
+                        if (this.renderer.xr.setReferenceSpaceType) {
+                            this.renderer.xr.setReferenceSpaceType('local-floor');
+                        }
+                        await this.renderer.xr.setSession(session);
+                        console.log('XRController: 使用降级设置成功');
+                    } catch (e2) {
+                        throw new Error(`设置渲染器 XR 会话失败: ${e.message}。降级尝试也失败: ${e2.message}`);
+                    }
+                } else {
+                    throw new Error(`设置渲染器 XR 会话失败: ${e.message}`);
                 }
             }
             
