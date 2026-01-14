@@ -907,6 +907,162 @@ export class XRController {
         this._updateAnchors(frame);
     }
     
+    /**
+     * 显示降级十字星（相机前方固定位置）
+     * @private
+     * @param {XRFrame} frame - XR 帧（用于获取相机位置）
+     */
+    _showFallbackReticle(frame) {
+        if (!this.reticle) return;
+        
+        if (!frame || !this.referenceSpace) {
+            // 如果没有 frame，使用相机对象
+            if (this.camera) {
+                const distance = 2;
+                const forward = new Vector3(0, 0, -1);
+                forward.applyQuaternion(this.camera.quaternion);
+                const position = new Vector3().copy(this.camera.position).add(forward.multiplyScalar(distance));
+                
+                this.reticle.position.copy(position);
+                this.reticle.rotation.x = -Math.PI / 2;
+                this.reticle.visible = true;
+                
+                // 半透明显示
+                this.reticle.traverse((child) => {
+                    if (child.material) {
+                        child.material.opacity = 0.6;
+                        child.material.transparent = true;
+                    }
+                });
+                
+                // 保存位置矩阵
+                const matrix = new Matrix4();
+                matrix.makeTranslation(position.x, position.y, position.z);
+                const rotation = new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), -Math.PI / 2);
+                matrix.makeRotationFromQuaternion(rotation);
+                matrix.setPosition(position);
+                this.currentHitMatrix = matrix;
+            }
+            return;
+        }
+        
+        // 从 XRFrame 获取相机位置
+        let cameraPosition = new Vector3(0, 0, 0);
+        let cameraQuaternion = new Quaternion();
+        
+        try {
+            const viewerPose = frame.getViewerPose(this.referenceSpace);
+            if (viewerPose && viewerPose.transform) {
+                const transform = viewerPose.transform;
+                cameraPosition.setFromMatrixPosition(new Matrix4().fromArray(transform.matrix));
+                cameraQuaternion.setFromRotationMatrix(new Matrix4().fromArray(transform.matrix));
+            } else if (this.camera) {
+                cameraPosition.copy(this.camera.position);
+                cameraQuaternion.copy(this.camera.quaternion);
+            } else {
+                return;
+            }
+        } catch (e) {
+            if (this.camera) {
+                cameraPosition.copy(this.camera.position);
+                cameraQuaternion.copy(this.camera.quaternion);
+            } else {
+                return;
+            }
+        }
+        
+        // 在相机前方2米处显示十字星
+        const distance = 2;
+        const forward = new Vector3(0, 0, -1);
+        forward.applyQuaternion(cameraQuaternion);
+        const position = new Vector3().copy(cameraPosition).add(forward.multiplyScalar(distance));
+        
+        // 水平放置
+        this.reticle.position.copy(position);
+        this.reticle.rotation.x = -Math.PI / 2;
+        this.reticle.rotation.y = 0;
+        this.reticle.rotation.z = 0;
+        this.reticle.matrixAutoUpdate = true;
+        this.reticle.visible = true;
+        
+        // 半透明显示
+        this.reticle.traverse((child) => {
+            if (child.material) {
+                child.material.opacity = 0.6;
+                child.material.transparent = true;
+            }
+        });
+        
+        // 保存位置矩阵
+        const matrix = new Matrix4();
+        matrix.makeTranslation(position.x, position.y, position.z);
+        const rotation = new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), -Math.PI / 2);
+        matrix.makeRotationFromQuaternion(rotation);
+        matrix.setPosition(position);
+        this.currentHitMatrix = matrix;
+        this._hasHitTestResult = false;
+    }
+    
+    /**
+     * 创建十字星（内部方法）
+     * @private
+     */
+    _createReticle() {
+        if (this.reticle) return; // 已创建
+        
+        // 创建外圈
+        const outerRing = new RingGeometry(0.08, 0.12, 32);
+        const innerRing = new RingGeometry(0.04, 0.06, 32);
+        const centerDot = new CircleGeometry(0.02, 32);
+        
+        const material = new MeshBasicMaterial({ 
+            color: 0xffffff,
+            side: 2 // DoubleSide
+        });
+        
+        const reticleGroup = new Group();
+        
+        // 外圈
+        const outerMesh = new Mesh(outerRing, material.clone());
+        outerMesh.rotation.x = -Math.PI / 2;
+        reticleGroup.add(outerMesh);
+        
+        // 内圈
+        const innerMesh = new Mesh(innerRing, material.clone());
+        innerMesh.rotation.x = -Math.PI / 2;
+        reticleGroup.add(innerMesh);
+        
+        // 中心点
+        const centerMesh = new Mesh(centerDot, material.clone());
+        centerMesh.rotation.x = -Math.PI / 2;
+        centerMesh.position.y = 0.001;
+        reticleGroup.add(centerMesh);
+        
+        this.reticle = reticleGroup;
+        this.reticle.visible = true; // 立即显示
+        
+        // 确保场景存在
+        if (!this.scene) {
+            console.error('XRController: 场景未初始化，无法添加十字星');
+            return;
+        }
+        
+        this.scene.add(this.reticle);
+        
+        // 设置初始位置（相机前方2米）
+        this.reticle.position.set(0, 0, -2);
+        this.reticle.rotation.x = -Math.PI / 2;
+        
+        // 半透明显示
+        this.reticle.traverse((child) => {
+            if (child.material) {
+                child.material.opacity = 0.6;
+                child.material.transparent = true;
+            }
+        });
+        
+        console.log('XRController: ✅ 十字星已创建并显示');
+    }
 
     /**
      * 设置点击事件处理（内部方法）
