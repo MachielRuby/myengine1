@@ -1657,6 +1657,55 @@ export class F3dApp {
     }
 
     /**
+     * 进入 AR 模式
+     * @param {Object} options - AR 选项
+     * @returns {Promise<boolean>} 是否成功启动 AR
+     */
+    async enterAR(options = {}) {
+        if (!this.xrCtrl) {
+            const error = new Error('XR 控制器未初始化');
+            console.error('enterAR:', error);
+            this._handleError('XR 控制器未初始化', error, 'ar');
+            return false;
+        }
+
+        try {
+            const success = await this.xrCtrl.startAR(options);
+            if (success) {
+                this.events.emit('ar:started');
+                console.log('AR 模式已启动');
+            } else {
+                console.warn('AR 启动失败');
+            }
+            return success;
+        } catch (error) {
+            console.error('enterAR 错误:', error);
+            this._handleError('启动 AR 失败', error, 'ar');
+            return false;
+        }
+    }
+
+    /**
+     * 退出 AR 模式
+     * @returns {Promise<void>}
+     */
+    async exitAR() {
+        if (!this.xrCtrl) {
+            console.warn('XR 控制器未初始化');
+            return;
+        }
+
+        try {
+            await this.xrCtrl.endSession();
+            this.events.emit('ar:ended');
+            console.log('AR 模式已退出');
+        } catch (error) {
+            console.error('exitAR 错误:', error);
+            this._handleError('退出 AR 失败', error, 'ar');
+        }
+    }
+
+    /**
      * 释放资源
      * @returns {void}
      */
