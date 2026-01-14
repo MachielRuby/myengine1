@@ -499,17 +499,29 @@ export class XRController {
             // 设置点击事件监听（点击时直接放置模型）
             this._setupClickHandler();
 
+            // 确保渲染器启用 XR
+            if (this.renderer && !this.renderer.xr.enabled) {
+                this.renderer.xr.enabled = true;
+                console.log('XRController: 已启用渲染器 XR 支持');
+            }
+            
             // 设置 Three.js XR 渲染循环
+            // 注意：Three.js XR 会自动渲染场景，我们只需要更新逻辑
             if (this.renderer && this.renderer.setAnimationLoop) {
                 this.renderer.setAnimationLoop((time, frame) => {
                     if (frame) {
                         // 在AR模式下，调用update方法更新十字星和锚点
                         this.update(frame);
                         
-                        // 确保场景被渲染（Three.js XR会自动渲染，但我们需要确保场景和相机正确）
-                        if (this.scene && this.camera) {
-                            // Three.js XR会自动处理渲染，但我们可以确保场景更新
+                        // 确保场景和十字星更新
+                        if (this.scene) {
                             this.scene.updateMatrixWorld(true);
+                            
+                            // 确保十字星可见
+                            if (this.reticle) {
+                                this.reticle.visible = true;
+                                this.reticle.updateMatrix();
+                            }
                         }
                     }
                 });

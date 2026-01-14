@@ -150,6 +150,9 @@ export class Engine {
             powerPreference: "high-performance",  
             precision: "highp"  
         });
+        
+        // 启用 XR 支持
+        this.renderer.xr.enabled = true;
     
         const devicePixelRatio = window.devicePixelRatio || 1;
         let pixelRatio;
