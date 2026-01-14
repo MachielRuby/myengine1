@@ -9,7 +9,12 @@ import {
     Matrix4,
     Group,
     Object3D,
-    Quaternion
+    Quaternion,
+    RingGeometry,
+    CircleGeometry,
+    MeshBasicMaterial,
+    Mesh,
+    MeshStandardMaterial
 } from "three";
 import { EventBus } from "../core/events/eventEmitter.js";
 
@@ -36,9 +41,12 @@ export class XRController {
         this.hitTestSourceRequested = false;
         this.referenceSpace = null; 
         this.viewerSpace = null;
+        this.reticle = null; // 十字星对象
+        this.currentHitMatrix = null; // 当前命中测试的矩阵
         
         // 锚点管理
         this.anchors = new Map(); // anchor -> Object3D
+        this.anchoredObjects = new Map(); // Object3D -> anchor (反向映射)
         
         // 手部追踪
         this.handTrackingEnabled = false;
@@ -465,6 +473,23 @@ export class XRController {
                 // 命中测试失败不是致命错误，继续执行
             }
 
+            // 创建十字星
+            this._createReticle();
+
+            // 设置点击事件监听
+            this._setupClickHandler();
+
+            // 设置 Three.js XR 渲染循环
+            if (this.renderer && this.renderer.setAnimationLoop) {
+                this.renderer.setAnimationLoop((time, frame) => {
+                    if (frame && this.isPresenting) {
+                        // 在AR模式下，调用update方法更新十字星和锚点
+                        this.update(frame);
+                    }
+                });
+                console.log('XRController: XR 渲染循环已设置');
+            }
+
             this.isPresenting = true;
             this.events.emit('xr:ar:started', { session });
             console.log('XRController: AR 会话初始化完成');
@@ -497,6 +522,12 @@ export class XRController {
      */
     _onSessionEnd() {
         this.isPresenting = false;
+        
+        // 恢复正常的渲染循环
+        if (this.renderer && this.renderer.setAnimationLoop) {
+            this.renderer.setAnimationLoop(null);
+            console.log('XRController: 已恢复正常渲染循环');
+        }
         
         // 清理
         this._cleanup();
@@ -532,6 +563,26 @@ export class XRController {
             }
         });
         this.anchors.clear();
+        this.anchoredObjects.clear();
+
+        // 清理十字星
+        if (this.reticle) {
+            this.scene.remove(this.reticle);
+            // 清理几何体和材质
+            this.reticle.traverse((child) => {
+                if (child.geometry) child.geometry.dispose();
+                if (child.material) child.material.dispose();
+            });
+            this.reticle = null;
+        }
+        
+        this.currentHitMatrix = null;
+        
+        // 移除点击监听器
+        if (this._clickHandler && this.renderer && this.renderer.domElement) {
+            this.renderer.domElement.removeEventListener('click', this._clickHandler);
+            this._clickHandler = null;
+        }
 
         // 清理手部追踪
         this.hands.clear();
@@ -774,16 +825,198 @@ export class XRController {
     update(frame) {
         if (!this.isPresenting || !frame) return;
 
-        // 更新命中测试
+        // 更新命中测试和十字星
         if (this.hitTestSource) {
             const hitTestResults = this.getHitTestResults(frame);
             if (hitTestResults && hitTestResults.length > 0) {
+                const hit = hitTestResults[0];
+                const pose = hit.getPose(this.referenceSpace);
+                
+                if (pose && this.reticle) {
+                    // 更新十字星位置
+                    const matrix = this._tempMatrix.fromArray(pose.transform.matrix);
+                    this.reticle.position.setFromMatrixPosition(matrix);
+                    this.reticle.quaternion.setFromRotationMatrix(matrix);
+                    this.reticle.visible = true;
+                    
+                    // 保存当前命中矩阵，用于放置模型
+                    this.currentHitMatrix = matrix.clone();
+                }
+                
                 this.events.emit('xr:hit-test:results', { results: hitTestResults, frame });
+            } else if (this.reticle) {
+                // 没有命中测试结果，隐藏十字星
+                this.reticle.visible = false;
+                this.currentHitMatrix = null;
             }
         }
 
         // 更新锚点
         this._updateAnchors(frame);
+    }
+
+    /**
+     * 创建十字星（内部方法）
+     * @private
+     */
+    _createReticle() {
+        if (this.reticle) return; // 已创建
+        
+        // 创建外圈
+        const outerRing = new RingGeometry(0.08, 0.12, 32);
+        const innerRing = new RingGeometry(0.04, 0.06, 32);
+        const centerDot = new CircleGeometry(0.02, 32);
+        
+        const material = new MeshBasicMaterial({ 
+            color: 0xffffff,
+            side: 2 // DoubleSide
+        });
+        
+        const reticleGroup = new Group();
+        
+        // 外圈
+        const outerMesh = new Mesh(outerRing, material);
+        outerMesh.rotation.x = -Math.PI / 2;
+        reticleGroup.add(outerMesh);
+        
+        // 内圈
+        const innerMesh = new Mesh(innerRing, material);
+        innerMesh.rotation.x = -Math.PI / 2;
+        reticleGroup.add(innerMesh);
+        
+        // 中心点
+        const centerMesh = new Mesh(centerDot, material);
+        centerMesh.rotation.x = -Math.PI / 2;
+        centerMesh.position.y = 0.001; // 稍微抬高避免z-fighting
+        reticleGroup.add(centerMesh);
+        
+        this.reticle = reticleGroup;
+        this.reticle.visible = false;
+        this.scene.add(this.reticle);
+        
+        console.log('XRController: 十字星已创建');
+    }
+
+    /**
+     * 设置点击事件处理（内部方法）
+     * @private
+     */
+    _setupClickHandler() {
+        // 移除旧的监听器（如果存在）
+        if (this._clickHandler) {
+            this.renderer.domElement.removeEventListener('click', this._clickHandler);
+        }
+        
+        // 创建新的点击处理器
+        this._clickHandler = (event) => {
+            if (!this.isPresenting || !this.currentHitMatrix) {
+                return;
+            }
+            
+            // 触发放置事件
+            this.events.emit('xr:place', { 
+                matrix: this.currentHitMatrix.clone(),
+                position: new Vector3().setFromMatrixPosition(this.currentHitMatrix),
+                rotation: new Quaternion().setFromRotationMatrix(this.currentHitMatrix)
+            });
+        };
+        
+        // 添加点击监听
+        this.renderer.domElement.addEventListener('click', this._clickHandler);
+        console.log('XRController: 点击事件已设置');
+    }
+
+    /**
+     * 在命中位置放置对象
+     * @param {Object3D} object - 要放置的对象
+     * @param {Matrix4} matrix - 位置矩阵（可选，如果不提供则使用当前命中位置）
+     * @param {boolean} createAnchor - 是否创建AR锚点
+     * @returns {Promise<XRAnchor|null>} 返回创建的锚点（如果成功）
+     */
+    async placeObjectAtHit(object, matrix = null, createAnchor = true) {
+        if (!this.isPresenting || !this.referenceSpace) {
+            console.warn('XRController: AR 会话未激活，无法放置对象');
+            return null;
+        }
+
+        const placementMatrix = matrix || this.currentHitMatrix;
+        if (!placementMatrix) {
+            console.warn('XRController: 没有可用的命中位置');
+            return null;
+        }
+
+        // 设置对象位置
+        object.position.setFromMatrixPosition(placementMatrix);
+        object.quaternion.setFromRotationMatrix(placementMatrix);
+        object.matrixAutoUpdate = false; // 固定位置，不自动更新
+        
+        // 添加到场景
+        if (!this.scene.children.includes(object)) {
+            this.scene.add(object);
+        }
+
+        // 创建AR锚点（如果支持）
+        let anchor = null;
+        if (createAnchor && this.session && this.session.requestAnchor) {
+            try {
+                // 创建锚点矩阵
+                const anchorMatrix = new Float32Array(16);
+                placementMatrix.toArray(anchorMatrix);
+                
+                // 请求锚点
+                anchor = await this.session.requestAnchor(this.referenceSpace, {
+                    pose: {
+                        transform: {
+                            matrix: anchorMatrix
+                        }
+                    }
+                });
+                
+                // 保存锚点映射
+                this.anchors.set(anchor, object);
+                this.anchoredObjects.set(object, anchor);
+                
+                console.log('XRController: 对象已放置并创建锚点');
+                this.events.emit('xr:object:placed', { object, anchor, matrix: placementMatrix });
+            } catch (e) {
+                console.warn('XRController: 创建锚点失败，对象仍会放置:', e);
+                // 即使锚点创建失败，对象也会被放置
+                this.events.emit('xr:object:placed', { object, anchor: null, matrix: placementMatrix });
+            }
+        } else {
+            // 不使用锚点，直接放置
+            console.log('XRController: 对象已放置（未创建锚点）');
+            this.events.emit('xr:object:placed', { object, anchor: null, matrix: placementMatrix });
+        }
+
+        return anchor;
+    }
+
+    /**
+     * 移除已放置的对象
+     * @param {Object3D} object - 要移除的对象
+     */
+    removePlacedObject(object) {
+        if (!object) return;
+
+        // 移除锚点
+        const anchor = this.anchoredObjects.get(object);
+        if (anchor) {
+            try {
+                anchor.delete();
+            } catch (e) {
+                console.warn('XRController: 删除锚点失败:', e);
+            }
+            this.anchors.delete(anchor);
+            this.anchoredObjects.delete(object);
+        }
+
+        // 从场景移除
+        if (this.scene.children.includes(object)) {
+            this.scene.remove(object);
+        }
+
+        this.events.emit('xr:object:removed', { object });
     }
 
     /**

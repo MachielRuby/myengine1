@@ -101,4 +101,39 @@ arButton.addEventListener('click', async () => {
     }
 });
 
+// 监听 AR 放置事件，放置模型到指定位置
+app.xrCtrl?.events.on('xr:place', async (data) => {
+    const { matrix, position } = data;
+    
+    // 获取当前场景中的模型（假设已经加载了模型）
+    const models = app.models;
+    if (models.size === 0) {
+        console.warn('没有可放置的模型');
+        return;
+    }
+    
+    // 获取第一个模型
+    const firstModelId = models.keys().next().value;
+    const modelData = models.get(firstModelId);
+    
+    if (modelData && modelData.object) {
+        // 克隆模型（避免移动原模型）
+        const modelToPlace = modelData.object.clone();
+        
+        // 放置模型到AR空间
+        const anchor = await app.xrCtrl.placeObjectAtHit(modelToPlace, matrix, true);
+        
+        if (anchor) {
+            console.log('模型已放置到AR空间，并创建了锚点');
+        } else {
+            console.log('模型已放置到AR空间（未创建锚点）');
+        }
+    }
+});
+
+// 也可以直接监听点击事件来放置模型
+app.xrCtrl?.events.on('xr:object:placed', (data) => {
+    console.log('对象已放置:', data);
+});
+
 console.log('F3dApp initialized', app);
