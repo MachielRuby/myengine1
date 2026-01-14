@@ -505,6 +505,12 @@ export class XRController {
                     if (frame) {
                         // 在AR模式下，调用update方法更新十字星和锚点
                         this.update(frame);
+                        
+                        // 确保场景被渲染（Three.js XR会自动渲染，但我们需要确保场景和相机正确）
+                        if (this.scene && this.camera) {
+                            // Three.js XR会自动处理渲染，但我们可以确保场景更新
+                            this.scene.updateMatrixWorld(true);
+                        }
                     }
                 });
                 console.log('XRController: XR 渲染循环已设置');
@@ -1047,21 +1053,32 @@ export class XRController {
             return;
         }
         
+        // 添加到场景
         this.scene.add(this.reticle);
         
         // 设置初始位置（相机前方2米）
         this.reticle.position.set(0, 0, -2);
         this.reticle.rotation.x = -Math.PI / 2;
+        this.reticle.matrixAutoUpdate = true;
+        this.reticle.updateMatrix();
         
         // 半透明显示
         this.reticle.traverse((child) => {
             if (child.material) {
-                child.material.opacity = 0.6;
+                child.material.opacity = 0.8; // 增加不透明度，更容易看到
                 child.material.transparent = true;
+                child.material.depthWrite = false; // 避免深度问题
             }
         });
         
-        console.log('XRController: ✅ 十字星已创建并显示');
+        // 确保十字星在场景中
+        console.log('XRController:  十字星已创建并添加到场景', {
+            scene: !!this.scene,
+            reticle: !!this.reticle,
+            reticleVisible: this.reticle.visible,
+            sceneChildren: this.scene.children.length,
+            reticleInScene: this.scene.children.includes(this.reticle)
+        });
     }
 
     /**
@@ -1090,7 +1107,7 @@ export class XRController {
                     hasHitTest: true
                 });
                 
-                console.log('XRController: ✅ 点击放置模型（hit-test位置）');
+                console.log('XRController:  点击放置模型（hit-test位置）');
             } else {
                 // 没有 hit-test 结果，使用相机前方2米处
                 const distance = 2;
@@ -1115,7 +1132,7 @@ export class XRController {
                         hasHitTest: false
                     });
                     
-                    console.log('XRController: ✅ 点击放置模型（相机前方位置）');
+                    console.log('XRController:  点击放置模型（相机前方位置）');
                 }
             }
         };
