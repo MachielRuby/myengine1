@@ -370,8 +370,6 @@ export class XRController {
                 throw new Error('渲染器不支持 XR.setSession');
             }
 
-            // 先初始化参考空间 - 尝试多种类型，按优先级降级
-            // 必须在设置渲染器会话之前完成，因为 Three.js 的 setSession 可能会使用默认参考空间
             const referenceSpaceTypes = ['local', 'local-floor', 'bounded-floor', 'unbounded'];
             let referenceSpaceInitialized = false;
             let selectedSpaceType = null;
@@ -394,10 +392,7 @@ export class XRController {
                 throw new Error(`设备不支持任何可用的参考空间类型。尝试的类型: ${referenceSpaceTypes.join(', ')}`);
             }
 
-            // 设置渲染器的 XR 会话和参考空间类型
-            // Three.js 的 setSession 内部会调用 requestReferenceSpace，所以我们需要先设置参考空间类型
             try {
-                // 设置 Three.js 的参考空间类型（必须在 setSession 之前）
                 if (this.renderer.xr.setReferenceSpaceType) {
                     this.renderer.xr.setReferenceSpaceType(selectedSpaceType);
                     console.log(`XRController: 设置渲染器参考空间类型为: ${selectedSpaceType}`);
@@ -405,7 +400,7 @@ export class XRController {
                     console.warn('XRController: 渲染器不支持 setReferenceSpaceType，使用默认设置');
                 }
                 
-                // 设置会话（Three.js 会使用我们指定的参考空间类型）
+                // 设置会话
                 await this.renderer.xr.setSession(session);
                 console.log('XRController: 渲染器 XR 会话已设置');
                 
