@@ -238,25 +238,38 @@ export class XRController {
         }
 
         try {
-            const space = options.space || this.viewerSpace || this.referenceSpace;
+            // 优先使用 viewer 空间进行 hit-test（参考 React Three XR 的实现）
+            // viewer 空间是相对于设备相机的空间，更适合 hit-test
+            let space = options.space;
+            
+            if (!space) {
+                // 如果没有指定空间，尝试使用 viewer 空间
+                if (!this.viewerSpace && this.session) {
+                    try {
+                        this.viewerSpace = await this.session.requestReferenceSpace('viewer');
+                        console.log('XRController: 已创建 viewer 空间用于 hit-test');
+                    } catch (e) {
+                        console.warn('XRController: 无法创建 viewer 空间，使用 referenceSpace:', e);
+                        this.viewerSpace = this.referenceSpace;
+                    }
+                }
+                space = this.viewerSpace || this.referenceSpace;
+            }
+            
             if (!space) {
                 console.error('XRController: 无法获取参考空间');
                 return false;
             }
 
-            // 尝试使用更快的命中测试配置
-            // 使用 'viewer' 空间可以更快地检测，但精度可能稍低
+            // 使用 viewer 空间进行 hit-test（React Three XR 的推荐方式）
             const hitTestOptions = {
-                space: space,
-                // 可选：添加偏移射线以提高检测速度
-                offsetRay: options.offsetRay || null
+                space: space
             };
 
             this.hitTestSource = await this.session.requestHitTestSource(hitTestOptions);
             this.hitTestSourceRequested = true;
             
-            console.log('XRController: 命中测试已初始化（优化配置）');
-            this.events.emit('xr:hit-test:initialized');
+            console.log('XRController: 命中测试已初始化（使用 viewer 空间）');cc
             return true;
         } catch (e) {
             console.warn('XRController: 初始化命中测试失败（将使用降级模式）:', e);
@@ -847,10 +860,13 @@ export class XRController {
                 const pose = hit.getPose(this.referenceSpace);
                 
                 if (pose && this.reticle) {
-                    // 更新十字星位置
+                    // 更新十字星位置 - 直接使用矩阵（参考React Three XR的实现）
                     const matrix = this._tempMatrix.fromArray(pose.transform.matrix);
-                    this.reticle.position.setFromMatrixPosition(matrix);
-                    this.reticle.quaternion.setFromRotationMatrix(matrix);
+                    
+                    // 直接复制矩阵，而不是手动分解位置和旋转
+                    // 这样可以保持hit-test矩阵的完整变换
+                    this.reticle.matrix.copy(matrix);
+                    this.reticle.matrixAutoUpdate = false; // 固定矩阵，不自动更新
                     this.reticle.visible = true;
                     
                     // 恢复不透明（有hit-test结果时）
