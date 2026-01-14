@@ -486,18 +486,24 @@ export class XRController {
             // 创建十字星
             this._createReticle();
 
+            // 立即显示降级十字星（确保用户能看到）
+            this._showFallbackReticle();
+            console.log('XRController: 降级十字星已显示（初始化）');
+
             // 设置点击事件监听
             this._setupClickHandler();
 
             // 设置 Three.js XR 渲染循环
             if (this.renderer && this.renderer.setAnimationLoop) {
                 this.renderer.setAnimationLoop((time, frame) => {
-                    if (frame && this.isPresenting) {
+                    if (frame) {
                         // 在AR模式下，调用update方法更新十字星和锚点
                         this.update(frame);
                     }
                 });
                 console.log('XRController: XR 渲染循环已设置');
+            } else {
+                console.warn('XRController: 渲染器不支持 setAnimationLoop');
             }
 
             this.isPresenting = true;
@@ -833,7 +839,14 @@ export class XRController {
      * @param {XRFrame} frame - XR 帧
      */
     update(frame) {
-        if (!this.isPresenting || !frame) return;
+        if (!this.isPresenting) return;
+        
+        // 添加调试信息（每60帧输出一次）
+        if (!this._updateCount) this._updateCount = 0;
+        this._updateCount++;
+        if (this._updateCount % 60 === 0) {
+            console.log('XRController: update 被调用，hitTestSource:', !!this.hitTestSource, 'reticle:', !!this.reticle);
+        }
 
         // 更新命中测试和十字星
         if (this.hitTestSource) {
@@ -874,13 +887,21 @@ export class XRController {
         // 更新锚点
         this._updateAnchors(frame);
     }
-
+    
     /**
      * 显示降级十字星（相机前方固定位置）
      * @private
      */
     _showFallbackReticle() {
-        if (!this.reticle || !this.camera) return;
+        if (!this.reticle) {
+            console.warn('XRController: 十字星未创建，无法显示降级模式');
+            return;
+        }
+        
+        if (!this.camera) {
+            console.warn('XRController: 相机未初始化，无法显示降级模式');
+            return;
+        }
         
         // 在相机前方2米处显示十字星
         const distance = 2;
@@ -951,9 +972,20 @@ export class XRController {
         
         this.reticle = reticleGroup;
         this.reticle.visible = false;
+        
+        // 确保场景存在
+        if (!this.scene) {
+            console.error('XRController: 场景未初始化，无法添加十字星');
+            return;
+        }
+        
         this.scene.add(this.reticle);
         
-        console.log('XRController: 十字星已创建');
+        console.log('XRController: 十字星已创建并添加到场景', {
+            scene: !!this.scene,
+            reticle: !!this.reticle,
+            sceneChildren: this.scene.children.length
+        });
     }
 
     /**
