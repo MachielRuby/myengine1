@@ -505,12 +505,18 @@ export class XRController {
                 console.log('XRController: 已启用渲染器 XR 支持');
             }
             
-            // 使用手动渲染循环（参考 React Three XR 的实现）
-            // 这样可以完全控制渲染过程，确保场景被正确渲染
-            this._startManualRenderLoop();
-            console.log('XRController: 手动渲染循环已启动');
+            // 停止引擎的渲染循环，避免冲突和错误的视锥体剔除
+        if (this.engine) {
+            this.engine.stop();
+            console.log('XRController: 已暂停引擎主循环');
+        }
 
-            this.isPresenting = true;
+        // 使用手动渲染循环（参考 React Three XR 的实现）
+        // 这样可以完全控制渲染过程，确保场景被正确渲染
+        this._startManualRenderLoop();
+        console.log('XRController: 手动渲染循环已启动');
+
+        this.isPresenting = true;
             this.events.emit('xr:ar:started', { session });
             console.log('XRController: AR 会话初始化完成');
 
@@ -549,7 +555,11 @@ export class XRController {
         // 恢复正常的渲染循环
         if (this.renderer && this.renderer.setAnimationLoop) {
             this.renderer.setAnimationLoop(null);
-            console.log('XRController: 已恢复正常渲染循环');
+        }
+
+        // 恢复引擎主循环
+        if (this.engine) {
+            this.engine.start();
         }
         
         // 清理
@@ -1083,55 +1093,62 @@ export class XRController {
             color: 0xffffff,
             side: 2, // DoubleSide
             transparent: true,
-            opacity: 0.95
+            opacity: 0.8,
+            depthTest: false, // 禁用深度测试，确保始终显示在最上层
+            depthWrite: false // 不写入深度缓冲区
         });
         
         const reticleGroup = new Group();
+        reticleGroup.renderOrder = 9999; // 确保最后渲染
+        reticleGroup.name = "XR_Reticle";
         
         // 外圈
         const outerMesh = new Mesh(outerRing, material.clone());
         outerMesh.rotation.x = -Math.PI / 2;
+        outerMesh.frustumCulled = false; // 禁用视锥体剔除
+        outerMesh.renderOrder = 9999;
         reticleGroup.add(outerMesh);
         
         // 内圈
         const innerMesh = new Mesh(innerRing, material.clone());
         innerMesh.rotation.x = -Math.PI / 2;
+        innerMesh.frustumCulled = false;
+        innerMesh.renderOrder = 9999;
         reticleGroup.add(innerMesh);
         
         // 中心点
         const centerMesh = new Mesh(centerDot, material.clone());
         centerMesh.rotation.x = -Math.PI / 2;
         centerMesh.position.y = 0.001;
+        centerMesh.frustumCulled = false;
+        centerMesh.renderOrder = 9999;
         reticleGroup.add(centerMesh);
         
         this.reticle = reticleGroup;
         this.reticle.visible = true; // 立即显示
+        this.reticle.frustumCulled = false;
         
         // 确保场景存在
         if (!this.scene) {
             console.error('XRController: 场景未初始化，无法添加十字星');
-            return;
+            // 尝试重新获取场景
+            if (this.engine && this.engine.mainScene) {
+                this.scene = this.engine.mainScene;
+            } else {
+                return;
+            }
         }
         
         // 添加到场景
         this.scene.add(this.reticle);
+        console.log('XRController: 十字星已添加到场景', this.reticle);
         
-        // 设置初始位置（相机前方2米）
-        this.reticle.position.set(0, 0, -2);
+        // 设置初始位置（相机前方1米）
+        this.reticle.position.set(0, 0, -1);
         this.reticle.rotation.x = -Math.PI / 2;
         this.reticle.matrixAutoUpdate = true;
         this.reticle.updateMatrix();
-        
-        // 高亮显示
-        this.reticle.traverse((child) => {
-            if (child.material) {
-                child.material.opacity = 0.95;  // 高不透明度
-                child.material.transparent = true;
-                child.material.depthWrite = false;
-                child.material.color.setHex(0xffffff);  // 确保是白色
-            }
-        });
-        
+
         // 确保十字星在场景中
         console.log('XRController: ✅ 十字星已创建并添加到场景', {
             scene: !!this.scene,
