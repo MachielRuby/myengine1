@@ -41,8 +41,8 @@ export class XRController {
         this.hitTestSourceRequested = false;
         this.referenceSpace = null; 
         this.viewerSpace = null;
-        this.reticle = null; // 十字星对象
         this.currentHitMatrix = null; // 当前命中测试的矩阵
+        this._hasHitTestResult = false; // 是否有 hit-test 结果
         
         // 锚点管理
         this.anchors = new Map(); // anchor -> Object3D
@@ -492,40 +492,7 @@ export class XRController {
                 // 命中测试失败不是致命错误，继续执行
             }
 
-            // 创建十字星
-            this._createReticle();
-            
-            // 立即显示十字星（确保用户一进入AR就能看到）
-            // 初始位置在相机前方2米处
-            if (this.reticle) {
-                // 设置初始位置（相机前方2米，水平放置）
-                this.reticle.position.set(0, 0, -2);
-                this.reticle.rotation.x = -Math.PI / 2;
-                this.reticle.rotation.y = 0;
-                this.reticle.rotation.z = 0;
-                this.reticle.visible = true;
-                this.reticle.matrixAutoUpdate = true;
-                
-                // 使用半透明表示这是初始位置（等待hit-test）
-                this.reticle.traverse((child) => {
-                    if (child.material) {
-                        child.material.opacity = 0.7;
-                        child.material.transparent = true;
-                    }
-                });
-                
-                // 创建初始位置矩阵（用于点击放置）
-                const initialMatrix = new Matrix4();
-                initialMatrix.makeTranslation(0, 0, -2);
-                const rotation = new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), -Math.PI / 2);
-                initialMatrix.makeRotationFromQuaternion(rotation);
-                initialMatrix.setPosition(new Vector3(0, 0, -2));
-                this.currentHitMatrix = initialMatrix;
-                
-                console.log('XRController: ✅ 十字星已立即显示（初始位置：相机前方2米）');
-            }
-
-            // 设置点击事件监听
+            // 设置点击事件监听（点击时直接放置模型）
             this._setupClickHandler();
 
             // 设置 Three.js XR 渲染循环
@@ -616,17 +583,6 @@ export class XRController {
         this.anchors.clear();
         this.anchoredObjects.clear();
 
-        // 清理十字星
-        if (this.reticle) {
-            this.scene.remove(this.reticle);
-            // 清理几何体和材质
-            this.reticle.traverse((child) => {
-                if (child.geometry) child.geometry.dispose();
-                if (child.material) child.material.dispose();
-            });
-            this.reticle = null;
-        }
-        
         this.currentHitMatrix = null;
         
         // 移除点击监听器
@@ -883,18 +839,7 @@ export class XRController {
             console.log('XRController: update 被调用，hitTestSource:', !!this.hitTestSource, 'reticle:', !!this.reticle);
         }
 
-        // 确保十字星始终可见
-        if (!this.reticle) {
-            if (this._updateCount % 60 === 0) {
-                console.warn('XRController: 十字星未创建！');
-            }
-            return;
-        }
-        
-        // 始终显示十字星（即使没有hit-test结果）
-        this.reticle.visible = true;
-        
-        // 更新命中测试和十字星
+        // 更新命中测试（用于点击时获取位置）
         if (this.hitTestSource) {
             const hitTestResults = this.getHitTestResults(frame);
             
@@ -902,183 +847,29 @@ export class XRController {
                 const hit = hitTestResults[0];
                 const pose = hit.getPose(this.referenceSpace);
                 
-                if (pose && this.reticle) {
-                    // 更新十字星位置 - 直接使用矩阵（参考React Three XR的实现）
+                if (pose) {
+                    // 保存当前命中矩阵，用于点击时放置模型
                     const matrix = this._tempMatrix.fromArray(pose.transform.matrix);
-                    
-                    // 直接复制矩阵，而不是手动分解位置和旋转
-                    // 这样可以保持hit-test矩阵的完整变换
-                    this.reticle.matrix.copy(matrix);
-                    this.reticle.matrixAutoUpdate = false; // 固定矩阵，不自动更新
-                    this.reticle.visible = true;
-                    
-                    // 恢复不透明（有hit-test结果时）
-                    this.reticle.traverse((child) => {
-                        if (child.material) {
-                            child.material.opacity = 1.0;
-                            child.material.transparent = false;
-                        }
-                    });
-                    
-                    // 保存当前命中矩阵，用于放置模型
                     this.currentHitMatrix = matrix.clone();
+                    this._hasHitTestResult = true;
                     
                     this.events.emit('xr:hit-test:results', { results: hitTestResults, frame });
                 }
             } else {
-                // 没有命中测试结果，更新降级十字星位置（跟随相机）
-                this._showFallbackReticle(frame);
+                // 没有命中测试结果，清除当前矩阵
+                this.currentHitMatrix = null;
+                this._hasHitTestResult = false;
             }
         } else {
-            // 没有hit-test源，显示降级十字星（跟随相机）
-            this._showFallbackReticle(frame);
+            // 没有hit-test源，清除当前矩阵
+            this.currentHitMatrix = null;
+            this._hasHitTestResult = false;
         }
 
         // 更新锚点
         this._updateAnchors(frame);
     }
     
-    /**
-     * 显示降级十字星（相机前方固定位置）
-     * @private
-     * @param {XRFrame} frame - XR 帧（用于获取相机位置）
-     */
-    _showFallbackReticle(frame) {
-        if (!this.reticle) {
-            console.warn('XRController: 十字星未创建，无法显示降级模式');
-            return;
-        }
-        
-        if (!frame || !this.referenceSpace) {
-            // 如果没有 frame，不显示（等待下一帧）
-            this.reticle.visible = false;
-            return;
-        }
-        
-        // 从 XRFrame 获取相机位置（在 AR 模式下更准确）
-        let cameraPosition = new Vector3(0, 0, 0);
-        let cameraQuaternion = new Quaternion();
-        
-        try {
-            // 获取 viewer 的 pose
-            const viewerPose = frame.getViewerPose(this.referenceSpace);
-            if (viewerPose && viewerPose.transform) {
-                const transform = viewerPose.transform;
-                cameraPosition.setFromMatrixPosition(new Matrix4().fromArray(transform.matrix));
-                cameraQuaternion.setFromRotationMatrix(new Matrix4().fromArray(transform.matrix));
-            } else {
-                // 如果没有 viewerPose，使用相机对象（降级方案）
-                if (this.camera) {
-                    cameraPosition.copy(this.camera.position);
-                    cameraQuaternion.copy(this.camera.quaternion);
-                } else {
-                    this.reticle.visible = false;
-                    return;
-                }
-            }
-        } catch (e) {
-            // 如果获取 viewerPose 失败，使用相机对象（降级方案）
-            if (this.camera) {
-                cameraPosition.copy(this.camera.position);
-                cameraQuaternion.copy(this.camera.quaternion);
-            } else {
-                this.reticle.visible = false;
-                return;
-            }
-        }
-        
-        // 在相机前方2米处显示十字星
-        const distance = 2;
-        const forward = new Vector3(0, 0, -1);
-        forward.applyQuaternion(cameraQuaternion);
-        
-        const position = new Vector3().copy(cameraPosition).add(forward.multiplyScalar(distance));
-        
-        // 水平放置（贴地）
-        this.reticle.position.copy(position);
-        this.reticle.rotation.x = -Math.PI / 2;
-        this.reticle.rotation.y = 0;
-        this.reticle.rotation.z = 0;
-        
-        // 使用半透明显示，表示这是降级模式
-        this.reticle.traverse((child) => {
-            if (child.material) {
-                child.material.opacity = 0.6;
-                child.material.transparent = true;
-            }
-        });
-        
-        this.reticle.visible = true;
-        this.reticle.matrixAutoUpdate = true; // 降级模式使用自动更新
-        
-        // 保存降级位置矩阵
-        const matrix = new Matrix4();
-        matrix.makeTranslation(position.x, position.y, position.z);
-        const rotation = new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), -Math.PI / 2);
-        matrix.makeRotationFromQuaternion(rotation);
-        matrix.setPosition(position);
-        this.currentHitMatrix = matrix;
-        
-        // 调试信息（每60帧输出一次）
-        if (!this._fallbackUpdateCount) this._fallbackUpdateCount = 0;
-        this._fallbackUpdateCount++;
-        if (this._fallbackUpdateCount % 60 === 0) {
-            console.log('XRController: 降级十字星位置:', position, 'visible:', this.reticle.visible, 'cameraPos:', cameraPosition);
-        }
-    }
-
-    /**
-     * 创建十字星（内部方法）
-     * @private
-     */
-    _createReticle() {
-        if (this.reticle) return; // 已创建
-        
-        // 创建外圈
-        const outerRing = new RingGeometry(0.08, 0.12, 32);
-        const innerRing = new RingGeometry(0.04, 0.06, 32);
-        const centerDot = new CircleGeometry(0.02, 32);
-        
-        const material = new MeshBasicMaterial({ 
-            color: 0xffffff,
-            side: 2 // DoubleSide
-        });
-        
-        const reticleGroup = new Group();
-        
-        // 外圈
-        const outerMesh = new Mesh(outerRing, material);
-        outerMesh.rotation.x = -Math.PI / 2;
-        reticleGroup.add(outerMesh);
-        
-        // 内圈
-        const innerMesh = new Mesh(innerRing, material);
-        innerMesh.rotation.x = -Math.PI / 2;
-        reticleGroup.add(innerMesh);
-        
-        // 中心点
-        const centerMesh = new Mesh(centerDot, material);
-        centerMesh.rotation.x = -Math.PI / 2;
-        centerMesh.position.y = 0.001; // 稍微抬高避免z-fighting
-        reticleGroup.add(centerMesh);
-        
-        this.reticle = reticleGroup;
-        this.reticle.visible = false;
-        
-        // 确保场景存在
-        if (!this.scene) {
-            console.error('XRController: 场景未初始化，无法添加十字星');
-            return;
-        }
-        
-        this.scene.add(this.reticle);
-        
-        console.log('XRController: 十字星已创建并添加到场景', {
-            scene: !!this.scene,
-            reticle: !!this.reticle,
-            sceneChildren: this.scene.children.length
-        });
-    }
 
     /**
      * 设置点击事件处理（内部方法）
@@ -1096,51 +887,30 @@ export class XRController {
                 return;
             }
             
-            // 始终使用 currentHitMatrix（如果有的话），否则使用当前十字星位置
+            // 优先使用 hit-test 结果，否则使用相机前方位置
             if (this.currentHitMatrix) {
-                // 判断是否有真正的 hit-test 结果（通过检查矩阵是否来自 hit-test）
-                // 简单判断：如果 currentHitMatrix 不是初始矩阵，说明有 hit-test 结果
-                const isRealHitTest = this.hitTestSource && this.hitTestSource.active;
-                
+                // 使用 hit-test 结果的位置
                 this.events.emit('xr:place', { 
                     matrix: this.currentHitMatrix.clone(),
                     position: new Vector3().setFromMatrixPosition(this.currentHitMatrix),
                     rotation: new Quaternion().setFromRotationMatrix(this.currentHitMatrix),
-                    hasHitTest: isRealHitTest
+                    hasHitTest: true
                 });
                 
-                console.log('XRController: 点击放置，位置:', new Vector3().setFromMatrixPosition(this.currentHitMatrix), '有hit-test:', isRealHitTest);
-            } else if (this.reticle && this.reticle.visible) {
-                // 如果 currentHitMatrix 不存在，使用十字星的当前位置
-                const position = this.reticle.position.clone();
-                const matrix = new Matrix4();
-                matrix.makeTranslation(position.x, position.y, position.z);
-                const rotation = new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), -Math.PI / 2);
-                matrix.makeRotationFromQuaternion(rotation);
-                matrix.setPosition(position);
-                
-                this.events.emit('xr:place', { 
-                    matrix: matrix,
-                    position: position,
-                    rotation: rotation,
-                    hasHitTest: false
-                });
-                
-                console.log('XRController: 点击放置（使用十字星位置）:', position);
+                console.log('XRController: ✅ 点击放置模型（hit-test位置）');
             } else {
-                // 没有命中测试结果，使用相机前方的固定距离
-                const distance = 2; // 2米距离
-                const forward = new Vector3(0, 0, -1); // 相机前方
+                // 没有 hit-test 结果，使用相机前方2米处
+                const distance = 2;
+                const forward = new Vector3(0, 0, -1);
                 
                 // 获取相机位置和方向
                 if (this.camera) {
                     forward.applyQuaternion(this.camera.quaternion);
                     const position = new Vector3().copy(this.camera.position).add(forward.multiplyScalar(distance));
                     
-                    // 创建矩阵（水平放置在地面上）
+                    // 创建矩阵（水平放置）
                     const matrix = new Matrix4();
                     matrix.makeTranslation(position.x, position.y, position.z);
-                    // 旋转使模型水平放置
                     const rotation = new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), -Math.PI / 2);
                     matrix.makeRotationFromQuaternion(rotation);
                     matrix.setPosition(position);
@@ -1152,7 +922,7 @@ export class XRController {
                         hasHitTest: false
                     });
                     
-                    console.log('XRController: 使用相机前方位置放置（无hit-test）');
+                    console.log('XRController: ✅ 点击放置模型（相机前方位置）');
                 }
             }
         };
