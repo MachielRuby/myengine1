@@ -129,10 +129,38 @@ export class XRController {
             return false;
         }
 
-        if (!await this.isARSupported()) {
-            console.error('XRController: 设备不支持 AR');
-            this.events.emit('xr:error', { message: '设备不支持 AR', mode: 'ar' });
-            return false;
+        // 检查 WebXR 是否可用
+        if (!this.isAvailable()) {
+            const error = new Error('浏览器不支持 WebXR API。请使用 Chrome Android 或 Safari iOS');
+            console.error('XRController:', error.message);
+            this.events.emit('xr:error', { message: error.message, mode: 'ar', error });
+            throw error;
+        }
+
+        // 检查渲染器是否支持 XR
+        if (!this.renderer || !this.renderer.xr) {
+            const error = new Error('渲染器不支持 XR。请确保使用 WebGLRenderer');
+            console.error('XRController:', error.message);
+            this.events.emit('xr:error', { message: error.message, mode: 'ar', error });
+            throw error;
+        }
+
+        // 检查 AR 支持
+        let isARSupported = false;
+        try {
+            isARSupported = await this.isARSupported();
+        } catch (e) {
+            const error = new Error(`检查 AR 支持时出错: ${e.message}`);
+            console.error('XRController:', error.message, e);
+            this.events.emit('xr:error', { message: error.message, mode: 'ar', error: e });
+            throw error;
+        }
+
+        if (!isARSupported) {
+            const error = new Error('设备不支持 AR 模式。请确保：1) 使用支持的浏览器（Chrome Android 或 Safari iOS）2) 设备支持 AR 功能 3) 通过 HTTPS 或 localhost 访问');
+            console.error('XRController:', error.message);
+            this.events.emit('xr:error', { message: error.message, mode: 'ar', error });
+            throw error;
         }
 
         try {
@@ -145,12 +173,34 @@ export class XRController {
                 sessionOptions.domOverlay = options.domOverlay || this.config.domOverlay;
             }
 
+            console.log('XRController: 正在请求 AR 会话，配置:', sessionOptions);
             const session = await navigator.xr.requestSession('immersive-ar', sessionOptions);
+            console.log('XRController: AR 会话已创建');
             return await this._initializeSession(session);
         } catch (e) {
-            console.error('XRController: 启动 AR 失败:', e);
-            this.events.emit('xr:ar:error', { message: e.message, error: e });
-            return false;
+            // 提供更详细的错误信息
+            let errorMessage = '启动 AR 失败';
+            if (e.name === 'SecurityError') {
+                errorMessage = '安全错误：请确保通过 HTTPS 或 localhost 访问，并且用户手势触发了请求';
+            } else if (e.name === 'NotSupportedError') {
+                errorMessage = '不支持 AR：设备或浏览器不支持 immersive-ar 模式';
+            } else if (e.name === 'InvalidStateError') {
+                errorMessage = '无效状态：可能已有活跃的 XR 会话';
+            } else if (e.message) {
+                errorMessage = `启动 AR 失败: ${e.message}`;
+            }
+            
+            console.error('XRController: 启动 AR 失败:', {
+                name: e.name,
+                message: e.message,
+                stack: e.stack,
+                error: e
+            });
+            
+            const error = new Error(errorMessage);
+            error.originalError = e;
+            this.events.emit('xr:ar:error', { message: errorMessage, error: e });
+            throw error;
         }
     }
 
@@ -287,16 +337,42 @@ export class XRController {
         try {
             this.session = session;
 
+            // 检查渲染器 XR 支持
+            if (!this.renderer.xr || typeof this.renderer.xr.setSession !== 'function') {
+                throw new Error('渲染器不支持 XR.setSession');
+            }
+
             // 设置渲染器的 XR 会话
-            await this.renderer.xr.setSession(session);
+            try {
+                await this.renderer.xr.setSession(session);
+                console.log('XRController: 渲染器 XR 会话已设置');
+            } catch (e) {
+                throw new Error(`设置渲染器 XR 会话失败: ${e.message}`);
+            }
 
             // 初始化参考空间
-            this.referenceSpace = await session.requestReferenceSpace('local');
+            try {
+                this.referenceSpace = await session.requestReferenceSpace('local');
+                console.log('XRController: 参考空间已初始化');
+            } catch (e) {
+                // 尝试使用 'local-floor' 作为降级方案
+                try {
+                    this.referenceSpace = await session.requestReferenceSpace('local-floor');
+                    console.log('XRController: 使用 local-floor 参考空间');
+                } catch (e2) {
+                    throw new Error(`初始化参考空间失败: ${e.message}`);
+                }
+            }
             
             // 创建 viewer 空间（用于命中测试）
-            this.viewerSpace = await this.referenceSpace.getOffsetReferenceSpace(
-                new XRRigidTransform({ x: 0, y: 0, z: 0, w: 1 }, { x: 0, y: 0, z: 0 })
-            );
+            try {
+                this.viewerSpace = await this.referenceSpace.getOffsetReferenceSpace(
+                    new XRRigidTransform({ x: 0, y: 0, z: 0, w: 1 }, { x: 0, y: 0, z: 0 })
+                );
+            } catch (e) {
+                console.warn('XRController: 创建 viewer 空间失败，使用 referenceSpace:', e);
+                this.viewerSpace = this.referenceSpace;
+            }
 
             // 绑定会话事件
             session.addEventListener('end', this._onSessionEnd);

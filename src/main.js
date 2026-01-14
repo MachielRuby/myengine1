@@ -55,14 +55,43 @@ arButton.addEventListener('click', async () => {
 
         // 尝试启动 AR
         arButton.textContent = '启动 AR...';
-        const success = await app.enterAR();
-        
-        if (success) {
-            arButton.style.display = 'none';
-        } else {
+        try {
+            const success = await app.enterAR();
+            
+            if (success) {
+                arButton.style.display = 'none';
+            } else {
+                arButton.disabled = false;
+                arButton.textContent = '进入 AR';
+                alert('启动 AR 失败，请检查设备权限或稍后重试');
+            }
+        } catch (error) {
+            // 捕获并显示详细错误信息
             arButton.disabled = false;
             arButton.textContent = '进入 AR';
-            alert('启动 AR 失败，请检查设备权限或稍后重试');
+            
+            const errorMessage = error.message || '未知错误';
+            console.error('AR 启动错误详情:', {
+                message: error.message,
+                name: error.name,
+                stack: error.stack,
+                originalError: error.originalError
+            });
+            
+            // 显示友好的错误提示
+            let userMessage = '启动 AR 失败\n\n';
+            if (errorMessage.includes('不支持 WebXR')) {
+                userMessage += '请使用支持的浏览器：\n• Chrome Android\n• Safari iOS\n• Edge Android';
+            } else if (errorMessage.includes('不支持 AR')) {
+                userMessage += '请确保：\n1. 使用支持的浏览器\n2. 设备支持 AR 功能\n3. 通过 HTTPS 或 localhost 访问';
+            } else if (errorMessage.includes('安全错误') || errorMessage.includes('SecurityError')) {
+                userMessage += '安全限制：\n1. 必须通过 HTTPS 或 localhost 访问\n2. 必须由用户手势触发（点击按钮）';
+            } else {
+                userMessage += errorMessage;
+            }
+            
+            userMessage += '\n\n请查看浏览器控制台获取详细错误信息';
+            alert(userMessage);
         }
     } catch (error) {
         console.error('AR 按钮点击错误:', error);

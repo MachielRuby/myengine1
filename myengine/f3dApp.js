@@ -1666,7 +1666,7 @@ export class F3dApp {
             const error = new Error('XR 控制器未初始化');
             console.error('enterAR:', error);
             this._handleError('XR 控制器未初始化', error, 'ar');
-            return false;
+            throw error;
         }
 
         try {
@@ -1675,13 +1675,17 @@ export class F3dApp {
                 this.events.emit('ar:started');
                 console.log('AR 模式已启动');
             } else {
+                const error = new Error('AR 启动失败：未知原因');
                 console.warn('AR 启动失败');
+                throw error;
             }
             return success;
         } catch (error) {
             console.error('enterAR 错误:', error);
-            this._handleError('启动 AR 失败', error, 'ar');
-            return false;
+            // 传递原始错误信息
+            const errorMessage = error.message || '启动 AR 失败';
+            this._handleError(errorMessage, error, 'ar');
+            throw error; // 重新抛出错误，让调用者可以处理
         }
     }
 
