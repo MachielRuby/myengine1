@@ -377,28 +377,62 @@ export class XRController {
             }
 
             // 设置渲染器的 XR 会话和参考空间类型
+            // Three.js 的 setSession 内部会调用 requestReferenceSpace，所以我们需要先设置参考空间类型
             try {
-                // 如果 Three.js 支持设置参考空间类型，先设置它
-                if (this.renderer.xr.setReferenceSpaceType && selectedSpaceType) {
+                // 设置 Three.js 的参考空间类型（必须在 setSession 之前）
+                if (this.renderer.xr.setReferenceSpaceType) {
                     this.renderer.xr.setReferenceSpaceType(selectedSpaceType);
                     console.log(`XRController: 设置渲染器参考空间类型为: ${selectedSpaceType}`);
+                } else {
+                    console.warn('XRController: 渲染器不支持 setReferenceSpaceType，使用默认设置');
                 }
                 
+                // 设置会话（Three.js 会使用我们指定的参考空间类型）
                 await this.renderer.xr.setSession(session);
                 console.log('XRController: 渲染器 XR 会话已设置');
-            } catch (e) {
-                // 如果设置会话失败，尝试不指定参考空间类型
-                if (e.message && e.message.includes('reference space')) {
-                    console.warn('XRController: 设置会话时出现参考空间错误，尝试使用默认设置');
-                    try {
-                        // 重置参考空间类型，让 Three.js 使用默认值
-                        if (this.renderer.xr.setReferenceSpaceType) {
-                            this.renderer.xr.setReferenceSpaceType('local-floor');
+                
+                // 验证 Three.js 使用的参考空间是否与我们请求的一致
+                if (this.renderer.xr.getReferenceSpace) {
+                    const rendererSpace = this.renderer.xr.getReferenceSpace();
+                    if (rendererSpace) {
+                        console.log('XRController: 渲染器参考空间已确认');
+                        // 如果 Three.js 创建了自己的参考空间，使用它
+                        if (!this.referenceSpace || rendererSpace !== this.referenceSpace) {
+                            console.log('XRController: 使用渲染器创建的参考空间');
+                            this.referenceSpace = rendererSpace;
                         }
-                        await this.renderer.xr.setSession(session);
-                        console.log('XRController: 使用降级设置成功');
-                    } catch (e2) {
-                        throw new Error(`设置渲染器 XR 会话失败: ${e.message}。降级尝试也失败: ${e2.message}`);
+                    }
+                }
+            } catch (e) {
+                // 如果设置会话失败，尝试不同的参考空间类型
+                if (e.message && (e.message.includes('reference space') || e.message.includes('ReferenceSpace'))) {
+                    console.warn('XRController: 设置会话时出现参考空间错误，尝试其他参考空间类型');
+                    
+                    // 尝试其他参考空间类型
+                    const fallbackTypes = referenceSpaceTypes.filter(t => t !== selectedSpaceType);
+                    let fallbackSuccess = false;
+                    
+                    for (const fallbackType of fallbackTypes) {
+                        try {
+                            console.log(`XRController: 尝试降级到参考空间类型: ${fallbackType}`);
+                            this.referenceSpace = await session.requestReferenceSpace(fallbackType);
+                            
+                            if (this.renderer.xr.setReferenceSpaceType) {
+                                this.renderer.xr.setReferenceSpaceType(fallbackType);
+                            }
+                            
+                            await this.renderer.xr.setSession(session);
+                            console.log(`XRController: 使用 ${fallbackType} 参考空间成功`);
+                            fallbackSuccess = true;
+                            selectedSpaceType = fallbackType;
+                            break;
+                        } catch (e2) {
+                            console.warn(`XRController: ${fallbackType} 也失败:`, e2.message);
+                        }
+                    }
+                    
+                    if (!fallbackSuccess) {
+                        throw new Error(`设置渲染器 XR 会话失败: ${e.message}。所有参考空间类型都尝试失败`);
                     }
                 } else {
                     throw new Error(`设置渲染器 XR 会话失败: ${e.message}`);
