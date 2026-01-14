@@ -481,10 +481,6 @@ export class XRController {
             // 创建十字星
             this._createReticle();
 
-            // 立即显示降级十字星（确保用户能看到）
-            this._showFallbackReticle();
-            console.log('XRController: 降级十字星已显示（初始化）');
-
             // 设置点击事件监听
             this._setupClickHandler();
 
@@ -871,12 +867,10 @@ export class XRController {
                 
                 this.events.emit('xr:hit-test:results', { results: hitTestResults, frame });
             } else {
-                // 没有命中测试结果，显示降级十字星
-                this._showFallbackReticle();
+                this._showFallbackReticle(frame);
             }
         } else {
-            // 没有hit-test源，显示降级十字星
-            this._showFallbackReticle();
+            this._showFallbackReticle(frame);
         }
 
         // 更新锚点
@@ -886,26 +880,60 @@ export class XRController {
     /**
      * 显示降级十字星（相机前方固定位置）
      * @private
+     * @param {XRFrame} frame - XR 帧（用于获取相机位置）
      */
-    _showFallbackReticle() {
+    _showFallbackReticle(frame) {
         if (!this.reticle) {
             console.warn('XRController: 十字星未创建，无法显示降级模式');
             return;
         }
         
-        if (!this.camera) {
-            console.warn('XRController: 相机未初始化，无法显示降级模式');
+        if (!frame || !this.referenceSpace) {
+            // 如果没有 frame，不显示（等待下一帧）
+            this.reticle.visible = false;
             return;
+        }
+        
+        // 从 XRFrame 获取相机位置（在 AR 模式下更准确）
+        let cameraPosition = new Vector3(0, 0, 0);
+        let cameraQuaternion = new Quaternion();
+        
+        try {
+            // 获取 viewer 的 pose
+            const viewerPose = frame.getViewerPose(this.referenceSpace);
+            if (viewerPose && viewerPose.transform) {
+                const transform = viewerPose.transform;
+                cameraPosition.setFromMatrixPosition(new Matrix4().fromArray(transform.matrix));
+                cameraQuaternion.setFromRotationMatrix(new Matrix4().fromArray(transform.matrix));
+            } else {
+                // 如果没有 viewerPose，使用相机对象（降级方案）
+                if (this.camera) {
+                    cameraPosition.copy(this.camera.position);
+                    cameraQuaternion.copy(this.camera.quaternion);
+                } else {
+                    this.reticle.visible = false;
+                    return;
+                }
+            }
+        } catch (e) {
+            // 如果获取 viewerPose 失败，使用相机对象（降级方案）
+            if (this.camera) {
+                cameraPosition.copy(this.camera.position);
+                cameraQuaternion.copy(this.camera.quaternion);
+            } else {
+                this.reticle.visible = false;
+                return;
+            }
         }
         
         // 在相机前方2米处显示十字星
         const distance = 2;
         const forward = new Vector3(0, 0, -1);
-        forward.applyQuaternion(this.camera.quaternion);
+        forward.applyQuaternion(cameraQuaternion);
         
-        const position = new Vector3().copy(this.camera.position).add(forward.multiplyScalar(distance));
+        const position = new Vector3().copy(cameraPosition).add(forward.multiplyScalar(distance));
         
-        // 水平放置（稍微向下倾斜）
+        // 水平放置（贴地）
         this.reticle.position.copy(position);
         this.reticle.rotation.x = -Math.PI / 2;
         this.reticle.rotation.y = 0;
@@ -914,7 +942,7 @@ export class XRController {
         // 使用半透明显示，表示这是降级模式
         this.reticle.traverse((child) => {
             if (child.material) {
-                child.material.opacity = 0.5;
+                child.material.opacity = 0.6;
                 child.material.transparent = true;
             }
         });
