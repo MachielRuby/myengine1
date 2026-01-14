@@ -1656,7 +1656,7 @@ export class F3dApp {
         return this;
     }
 
-    /**
+     /**
      * 进入 AR 模式
      * @param {Object} options - AR 选项
      * @returns {Promise<boolean>} 是否成功启动 AR
