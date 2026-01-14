@@ -920,60 +920,47 @@ export class XRController {
     update(frame) {
         if (!this.isPresenting) return;
         
-        // 添加调试信息（每60帧输出一次）
-        if (!this._updateCount) this._updateCount = 0;
-        this._updateCount++;
-        if (this._updateCount % 60 === 0) {
-            console.log('XRController: update 被调用，hitTestSource:', !!this.hitTestSource, 'reticle:', !!this.reticle);
-        }
-
-        // 更新命中测试和十字星
+        // 确保十字星存在
         if (!this.reticle) {
-            // 如果十字星未创建，尝试创建
             this._createReticle();
         }
         
-        // 确保十字星始终可见
+        // 强制显示十字星
         if (this.reticle) {
             this.reticle.visible = true;
-        }
-        
-        if (this.hitTestSource) {
-            const hitTestResults = this.getHitTestResults(frame);
             
-            if (hitTestResults && hitTestResults.length > 0) {
-                const hit = hitTestResults[0];
-                const pose = hit.getPose(this.referenceSpace);
+            // 尝试使用hit-test更新位置
+            if (this.hitTestSource) {
+                const hitTestResults = this.getHitTestResults(frame);
                 
-                if (pose && this.reticle) {
-                    // 更新十字星位置 - 使用 hit-test 结果
-                    const matrix = this._tempMatrix.fromArray(pose.transform.matrix);
+                if (hitTestResults && hitTestResults.length > 0) {
+                    const hit = hitTestResults[0];
+                    const pose = hit.getPose(this.referenceSpace);
                     
-                    // 直接复制矩阵
-                    this.reticle.matrix.copy(matrix);
-                    this.reticle.matrixAutoUpdate = false;
-                    this.reticle.visible = true;
-                    
-                    // 不透明显示（有 hit-test 结果）
-                    this.reticle.traverse((child) => {
-                        if (child.material) {
-                            child.material.opacity = 1.0;
-                            child.material.transparent = false;
-                        }
-                    });
-                    
-                    // 保存当前命中矩阵，用于点击时放置模型
-                    this.currentHitMatrix = matrix.clone();
-                    this._hasHitTestResult = true;
-                    
-                    this.events.emit('xr:hit-test:results', { results: hitTestResults, frame });
+                    if (pose) {
+                        // 使用hit-test结果
+                        const matrix = this._tempMatrix.fromArray(pose.transform.matrix);
+                        this.reticle.matrix.copy(matrix);
+                        this.reticle.matrixAutoUpdate = false;
+                        this.reticle.visible = true;
+                        
+                        // 不透明显示
+                        this.reticle.traverse((child) => {
+                            if (child.material) {
+                                child.material.opacity = 1.0;
+                                child.material.transparent = false;
+                            }
+                        });
+                        
+                        this.currentHitMatrix = matrix.clone();
+                        this._hasHitTestResult = true;
+                        this.events.emit('xr:hit-test:results', { results: hitTestResults, frame });
+                        return;
+                    }
                 }
-            } else {
-                // 没有命中测试结果，显示降级十字星（相机前方）
-                this._showFallbackReticle(frame);
             }
-        } else {
-            // 没有hit-test源，显示降级十字星（相机前方）
+            
+            // 没有hit-test结果，显示在相机前方（强制显示）
             this._showFallbackReticle(frame);
         }
 
@@ -1020,29 +1007,30 @@ export class XRController {
             return;
         }
         
-        // 从 XRFrame 获取相机位置
+        // 获取相机位置
         let cameraPosition = new Vector3(0, 0, 0);
         let cameraQuaternion = new Quaternion();
         
-        try {
-            const viewerPose = frame.getViewerPose(this.referenceSpace);
-            if (viewerPose && viewerPose.transform) {
-                const transform = viewerPose.transform;
-                cameraPosition.setFromMatrixPosition(new Matrix4().fromArray(transform.matrix));
-                cameraQuaternion.setFromRotationMatrix(new Matrix4().fromArray(transform.matrix));
-            } else if (this.camera) {
-                cameraPosition.copy(this.camera.position);
-                cameraQuaternion.copy(this.camera.quaternion);
-            } else {
-                return;
+        if (frame && this.referenceSpace) {
+            try {
+                const viewerPose = frame.getViewerPose(this.referenceSpace);
+                if (viewerPose && viewerPose.transform) {
+                    const transform = viewerPose.transform;
+                    cameraPosition.setFromMatrixPosition(new Matrix4().fromArray(transform.matrix));
+                    cameraQuaternion.setFromRotationMatrix(new Matrix4().fromArray(transform.matrix));
+                } else if (this.camera) {
+                    cameraPosition.copy(this.camera.position);
+                    cameraQuaternion.copy(this.camera.quaternion);
+                }
+            } catch (e) {
+                if (this.camera) {
+                    cameraPosition.copy(this.camera.position);
+                    cameraQuaternion.copy(this.camera.quaternion);
+                }
             }
-        } catch (e) {
-            if (this.camera) {
-                cameraPosition.copy(this.camera.position);
-                cameraQuaternion.copy(this.camera.quaternion);
-            } else {
-                return;
-            }
+        } else if (this.camera) {
+            cameraPosition.copy(this.camera.position);
+            cameraQuaternion.copy(this.camera.quaternion);
         }
         
         // 在相机前方2米处显示十字星
@@ -1051,19 +1039,21 @@ export class XRController {
         forward.applyQuaternion(cameraQuaternion);
         const position = new Vector3().copy(cameraPosition).add(forward.multiplyScalar(distance));
         
-        // 水平放置
+        // 设置位置和旋转
         this.reticle.position.copy(position);
         this.reticle.rotation.x = -Math.PI / 2;
         this.reticle.rotation.y = 0;
         this.reticle.rotation.z = 0;
         this.reticle.matrixAutoUpdate = true;
+        this.reticle.updateMatrix();
         this.reticle.visible = true;
         
-        // 半透明显示
+        // 高亮显示（更容易看到）
         this.reticle.traverse((child) => {
             if (child.material) {
-                child.material.opacity = 0.6;
+                child.material.opacity = 0.9;
                 child.material.transparent = true;
+                child.material.color.setHex(0xffffff);
             }
         });
         
@@ -1084,14 +1074,16 @@ export class XRController {
     _createReticle() {
         if (this.reticle) return; // 已创建
         
-        // 创建外圈
-        const outerRing = new RingGeometry(0.08, 0.12, 32);
-        const innerRing = new RingGeometry(0.04, 0.06, 32);
-        const centerDot = new CircleGeometry(0.02, 32);
+        // 创建更大的十字星，更容易看到
+        const outerRing = new RingGeometry(0.15, 0.20, 32);  // 增大尺寸
+        const innerRing = new RingGeometry(0.08, 0.12, 32);
+        const centerDot = new CircleGeometry(0.04, 32);
         
         const material = new MeshBasicMaterial({ 
             color: 0xffffff,
-            side: 2 // DoubleSide
+            side: 2, // DoubleSide
+            transparent: true,
+            opacity: 0.95
         });
         
         const reticleGroup = new Group();
@@ -1130,22 +1122,24 @@ export class XRController {
         this.reticle.matrixAutoUpdate = true;
         this.reticle.updateMatrix();
         
-        // 半透明显示
+        // 高亮显示
         this.reticle.traverse((child) => {
             if (child.material) {
-                child.material.opacity = 0.8; // 增加不透明度，更容易看到
+                child.material.opacity = 0.95;  // 高不透明度
                 child.material.transparent = true;
-                child.material.depthWrite = false; // 避免深度问题
+                child.material.depthWrite = false;
+                child.material.color.setHex(0xffffff);  // 确保是白色
             }
         });
         
         // 确保十字星在场景中
-        console.log('XRController:  十字星已创建并添加到场景', {
+        console.log('XRController: ✅ 十字星已创建并添加到场景', {
             scene: !!this.scene,
             reticle: !!this.reticle,
-            reticleVisible: this.reticle.visible,
-            sceneChildren: this.scene.children.length,
-            reticleInScene: this.scene.children.includes(this.reticle)
+            visible: this.reticle.visible,
+            position: this.reticle.position,
+            inScene: this.scene.children.includes(this.reticle),
+            sceneChildrenCount: this.scene.children.length
         });
     }
 
