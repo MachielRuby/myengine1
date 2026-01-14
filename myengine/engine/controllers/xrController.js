@@ -385,7 +385,8 @@ export class XRController {
                 throw new Error('渲染器不支持 XR.setSession');
             }
 
-            const referenceSpaceTypes = ['local', 'local-floor', 'bounded-floor', 'unbounded'];
+            // 优先尝试 local-floor，这对 AR 放置更友好
+            const referenceSpaceTypes = ['local-floor', 'local', 'bounded-floor', 'unbounded'];
             let referenceSpaceInitialized = false;
             let selectedSpaceType = null;
             
@@ -1092,8 +1093,8 @@ export class XRController {
         const material = new MeshBasicMaterial({ 
             color: 0xffffff,
             side: 2, // DoubleSide
-            transparent: true,
-            opacity: 0.8,
+            transparent: false, // 不透明，模仿 webxr_test
+            opacity: 1.0,
             depthTest: false, // 禁用深度测试，确保始终显示在最上层
             depthWrite: false // 不写入深度缓冲区
         });
