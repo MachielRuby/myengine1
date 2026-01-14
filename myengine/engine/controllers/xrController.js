@@ -244,14 +244,24 @@ export class XRController {
                 return false;
             }
 
-            this.hitTestSource = await this.session.requestHitTestSource({ space });
+            // 尝试使用更快的命中测试配置
+            // 使用 'viewer' 空间可以更快地检测，但精度可能稍低
+            const hitTestOptions = {
+                space: space,
+                // 可选：添加偏移射线以提高检测速度
+                offsetRay: options.offsetRay || null
+            };
+
+            this.hitTestSource = await this.session.requestHitTestSource(hitTestOptions);
             this.hitTestSourceRequested = true;
             
+            console.log('XRController: 命中测试已初始化（优化配置）');
             this.events.emit('xr:hit-test:initialized');
             return true;
         } catch (e) {
-            console.error('XRController: 初始化命中测试失败:', e);
-            this.events.emit('xr:ar:error', { message: '初始化命中测试失败', error: e });
+            console.warn('XRController: 初始化命中测试失败（将使用降级模式）:', e);
+            // 命中测试失败不是致命错误，可以使用相机前方位置
+            this.events.emit('xr:hit-test:failed', { error: e });
             return false;
         }
     }
@@ -839,20 +849,69 @@ export class XRController {
                     this.reticle.quaternion.setFromRotationMatrix(matrix);
                     this.reticle.visible = true;
                     
+                    // 恢复不透明（有hit-test结果时）
+                    this.reticle.traverse((child) => {
+                        if (child.material) {
+                            child.material.opacity = 1.0;
+                            child.material.transparent = false;
+                        }
+                    });
+                    
                     // 保存当前命中矩阵，用于放置模型
                     this.currentHitMatrix = matrix.clone();
                 }
                 
                 this.events.emit('xr:hit-test:results', { results: hitTestResults, frame });
-            } else if (this.reticle) {
-                // 没有命中测试结果，隐藏十字星
-                this.reticle.visible = false;
-                this.currentHitMatrix = null;
+            } else {
+                // 没有命中测试结果，显示降级十字星
+                this._showFallbackReticle();
             }
+        } else {
+            // 没有hit-test源，显示降级十字星
+            this._showFallbackReticle();
         }
 
         // 更新锚点
         this._updateAnchors(frame);
+    }
+
+    /**
+     * 显示降级十字星（相机前方固定位置）
+     * @private
+     */
+    _showFallbackReticle() {
+        if (!this.reticle || !this.camera) return;
+        
+        // 在相机前方2米处显示十字星
+        const distance = 2;
+        const forward = new Vector3(0, 0, -1);
+        forward.applyQuaternion(this.camera.quaternion);
+        
+        const position = new Vector3().copy(this.camera.position).add(forward.multiplyScalar(distance));
+        
+        // 水平放置（稍微向下倾斜）
+        this.reticle.position.copy(position);
+        this.reticle.rotation.x = -Math.PI / 2;
+        this.reticle.rotation.y = 0;
+        this.reticle.rotation.z = 0;
+        
+        // 使用半透明显示，表示这是降级模式
+        this.reticle.traverse((child) => {
+            if (child.material) {
+                child.material.opacity = 0.5;
+                child.material.transparent = true;
+            }
+        });
+        
+        this.reticle.visible = true;
+        
+        // 保存降级位置矩阵
+        const matrix = new Matrix4();
+        matrix.makeTranslation(position.x, position.y, position.z);
+        const rotation = new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), -Math.PI / 2);
+        matrix.makeRotationFromQuaternion(rotation);
+        matrix.setPosition(position);
+        this.currentHitMatrix = matrix;
     }
 
     /**
@@ -909,21 +968,51 @@ export class XRController {
         
         // 创建新的点击处理器
         this._clickHandler = (event) => {
-            if (!this.isPresenting || !this.currentHitMatrix) {
+            if (!this.isPresenting) {
                 return;
             }
             
-            // 触发放置事件
-            this.events.emit('xr:place', { 
-                matrix: this.currentHitMatrix.clone(),
-                position: new Vector3().setFromMatrixPosition(this.currentHitMatrix),
-                rotation: new Quaternion().setFromRotationMatrix(this.currentHitMatrix)
-            });
+            // 如果有命中测试结果，使用它
+            if (this.currentHitMatrix) {
+                this.events.emit('xr:place', { 
+                    matrix: this.currentHitMatrix.clone(),
+                    position: new Vector3().setFromMatrixPosition(this.currentHitMatrix),
+                    rotation: new Quaternion().setFromRotationMatrix(this.currentHitMatrix),
+                    hasHitTest: true
+                });
+            } else {
+                // 没有命中测试结果，使用相机前方的固定距离
+                const distance = 2; // 2米距离
+                const forward = new Vector3(0, 0, -1); // 相机前方
+                
+                // 获取相机位置和方向
+                if (this.camera) {
+                    forward.applyQuaternion(this.camera.quaternion);
+                    const position = new Vector3().copy(this.camera.position).add(forward.multiplyScalar(distance));
+                    
+                    // 创建矩阵（水平放置在地面上）
+                    const matrix = new Matrix4();
+                    matrix.makeTranslation(position.x, position.y, position.z);
+                    // 旋转使模型水平放置
+                    const rotation = new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), -Math.PI / 2);
+                    matrix.makeRotationFromQuaternion(rotation);
+                    matrix.setPosition(position);
+                    
+                    this.events.emit('xr:place', { 
+                        matrix: matrix,
+                        position: position,
+                        rotation: rotation,
+                        hasHitTest: false
+                    });
+                    
+                    console.log('XRController: 使用相机前方位置放置（无hit-test）');
+                }
+            }
         };
         
         // 添加点击监听
         this.renderer.domElement.addEventListener('click', this._clickHandler);
-        console.log('XRController: 点击事件已设置');
+        console.log('XRController: 点击事件已设置（支持无hit-test放置）');
     }
 
     /**

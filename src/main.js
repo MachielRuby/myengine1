@@ -103,12 +103,17 @@ arButton.addEventListener('click', async () => {
 
 // 监听 AR 放置事件，放置模型到指定位置
 app.xrCtrl?.events.on('xr:place', async (data) => {
-    const { matrix, position } = data;
+    const { matrix, position, hasHitTest } = data;
     
     // 获取当前场景中的模型（假设已经加载了模型）
     const models = app.models;
     if (models.size === 0) {
         console.warn('没有可放置的模型');
+        // 显示提示
+        const message = hasHitTest 
+            ? '✅ 检测到平面！点击屏幕放置模型' 
+            : '⚠️ 未检测到平面，将在相机前方2米处放置模型';
+        console.log(message);
         return;
     }
     
@@ -120,15 +125,30 @@ app.xrCtrl?.events.on('xr:place', async (data) => {
         // 克隆模型（避免移动原模型）
         const modelToPlace = modelData.object.clone();
         
-        // 放置模型到AR空间
-        const anchor = await app.xrCtrl.placeObjectAtHit(modelToPlace, matrix, true);
-        
-        if (anchor) {
-            console.log('模型已放置到AR空间，并创建了锚点');
-        } else {
-            console.log('模型已放置到AR空间（未创建锚点）');
+        // 放置模型到AR空间（如果有hit-test才创建锚点）
+        try {
+            const anchor = await app.xrCtrl.placeObjectAtHit(modelToPlace, matrix, hasHitTest);
+            
+            if (anchor) {
+                console.log('✅ 模型已放置到AR空间，并创建了锚点');
+            } else {
+                console.log(hasHitTest 
+                    ? '✅ 模型已放置到AR空间（未创建锚点）' 
+                    : '⚠️ 模型已放置在相机前方（降级模式）');
+            }
+        } catch (error) {
+            console.error('放置模型失败:', error);
         }
     }
+});
+
+// 监听 hit-test 状态变化，显示提示
+app.xrCtrl?.events.on('xr:hit-test:results', () => {
+    console.log('✅ 检测到平面，白色十字星已显示');
+});
+
+app.xrCtrl?.events.on('xr:hit-test:failed', () => {
+    console.log('⚠️ Hit-test 不可用，将使用降级模式（相机前方位置）');
 });
 
 // 也可以直接监听点击事件来放置模型
