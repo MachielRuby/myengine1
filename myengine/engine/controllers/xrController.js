@@ -60,7 +60,7 @@ export class XRController {
             //设置参考空间
             const referenceSpace = await session.requestReferenceSpace('local-floor');
 
-            // ✅ 关键：停止引擎的动画循环，避免与 XR 渲染冲突
+            //  停止引擎的动画循环，避免与 XR 渲染冲突
             if (this.engine) {
                 this.engine.stop();
             }
@@ -73,20 +73,21 @@ export class XRController {
             if(this.scene) {
                 this.scene.background = null;
             }
-
+            
+            //设置渲染器背景透明
             if(this.renderer) {
                 this.renderer.setClearColor(0x000000, 0);
             }
 
 
 
-            // ✅ 调整模型位置 - 放在用户前方
+            //  调整模型位置
             if (this.scene) {
                 this.scene.traverse((child) => {
                     // 跳过灯光
                     if (child.type === 'AmbientLight' || child.type === 'DirectionalLight') return;
                     
-                    // 查找模型（有几何体的对象）
+                    // 查找模型
                     if (child.isGroup || child.isObject3D) {
                         let hasMesh = false;
                         child.traverse((obj) => {
@@ -97,17 +98,15 @@ export class XRController {
                         
                         // 如果是模型，调整位置到用户前方
                         if (hasMesh && child.parent === this.scene) {
-                            // 移动到用户前方 1 米，高度 0 米（地面）
                             child.position.set(0, 0, -1);
                             child.visible = true;
-                            child.frustumCulled = false;
+                            // child.frustumCulled = false;
                             child.updateMatrixWorld(true);
                         }
                     }
                 });
             }
 
-            // ✅ 关键：设置 Three.js XR 渲染循环
             // 在 XR 模式下，必须手动调用 render 并更新控制器
             let lastTime = null;
             this.renderer.setAnimationLoop((time, frame) => {
@@ -120,7 +119,7 @@ export class XRController {
                 const deltaTime = (time - lastTime) / 1000;
                 lastTime = time;
                 
-                // ✅ 更新引擎控制器（模型旋转、动画、热点等）
+                //  更新引擎控制器（模型旋转、动画、热点等）
                 if (this.engine) {
                     // 执行更新回调
                     for (const key in this.engine.onUpdateList) {
@@ -128,20 +127,20 @@ export class XRController {
                         if (typeof cb === 'function') cb(deltaTime);
                     }
                     
-                    // 更新模型控制器（旋转等行为）
+                    // 更新模型控制器
                     this.engine.modelController?.update?.(deltaTime);
                     
                     // 更新热点控制器
                     this.engine.hotspotController?.update?.(deltaTime);
                     
-                    // 更新动画控制器（如果有 update 方法）
+                    // 更新动画控制器
                     this.engine.animationController?.update?.(deltaTime);
                 }
                 
                 // 更新场景矩阵
                 this.scene.updateMatrixWorld(true);
                 
-                // ✅ 渲染场景（支持高亮控制器的 composer）
+                //  渲染场景
                 if (this.renderer && this.scene && this.camera) {
                     const composer = this.engine?.highlightController?.getComposer?.();
                     if (composer) {
@@ -159,12 +158,12 @@ export class XRController {
                 this.isPresenting = false;
                 this.session = null;
                 
-                // ✅ 停止 XR 渲染循环
+                //  停止 XR 渲染循环
                 if (this.renderer) {
                     this.renderer.setAnimationLoop(null);
                 }
                 
-                // ✅ 恢复引擎动画循环
+                //  恢复引擎动画循环
                 if (this.engine) {
                     this.engine.start();
                 }
