@@ -91,31 +91,27 @@ export class XRController {
             });
 
             // ✅ 创建一个超大的测试立方体（确认渲染是否工作）
+产生的            // 使用 MeshBasicMaterial 不需要灯光，更容易看到
+            const { BoxGeometry, MeshBasicMaterial, Mesh } = await import('three');
             if (this.scene && !this._testCube) {
-                const { BoxGeometry, MeshStandardMaterial, Mesh } = await import('three');
-                const geometry = new BoxGeometry(1, 1, 1); // 1米 x 1米，更大更容易看到
-                const material = new MeshStandardMaterial({ 
-                    color: 0xff0000,  // 红色
-                    emissive: 0x440000  // 自发光，更明显
+                const geometry = new BoxGeometry(2, 2, 2); // 2米 x 2米，超级大！
+                const material = new MeshBasicMaterial({ 
+                    color: 0xff0000  // 红色，不需要灯光
                 });
                 this._testCube = new Mesh(geometry, material);
-                this._testCube.position.set(0, 1.5, -1.5); // 用户前方1.5米，高度1.5米（更近）
+                // 放在用户前方1米，高度0米（地面高度）
+                this._testCube.position.set(0, 0, -1);
                 this._testCube.name = 'AR_TestCube';
                 this._testCube.visible = true;
+                this._testCube.frustumCulled = false;
                 this.scene.add(this._testCube);
-                console.log('✅ 已添加超大红色测试立方体到场景', {
-                    position: this._testCube.position,
-                    visible: this._testCube.visible,
-                    inScene: this.scene.children.includes(this._testCube)
-                });
             }
 
-            // ✅ 调整模型位置
+            // ✅ 调整模型位置 - 放在用户前方
             if (this.scene) {
-                let modelFound = false;
                 this.scene.traverse((child) => {
-                    // 跳过测试立方体
-                    if (child.name === 'AR_TestCube') return;
+                    // 跳过测试立方体和灯光
+                    if (child.name === 'AR_TestCube' || child.type === 'AmbientLight' || child.type === 'DirectionalLight') return;
                     
                     // 查找模型（有几何体的对象）
                     if (child.isGroup || child.isObject3D) {
@@ -128,37 +124,30 @@ export class XRController {
                         
                         // 如果是模型，调整位置到用户前方
                         if (hasMesh && child.parent === this.scene) {
-                            modelFound = true;
-                            // 移动到用户前方 2 米，高度 1.5 米
-                            child.position.set(0, 1.5, -2);
+                            // 移动到用户前方 1 米，高度 0 米（地面）
+                            child.position.set(0, 0, -1);
                             child.visible = true;
+                            child.frustumCulled = false;
                             child.updateMatrixWorld(true);
-                            console.log('✅ AR: 模型已移动到视野内', {
-                                name: child.name || child.type,
-                                position: child.position,
-                                visible: child.visible
-                            });
                         }
                     }
                 });
-                
-                if (!modelFound) {
-                    console.warn('⚠️ AR: 场景中没有找到模型！');
-                }
             }
 
             // ✅ 关键：设置 Three.js XR 渲染循环
-            // 必须在这里设置，确保场景被正确渲染
+            // 在 XR 模式下，必须手动调用 render
             this.renderer.setAnimationLoop((time, frame) => {
-                if (!this.isPresenting || !frame) return;
+                if (!this.isPresenting || !this.scene || !this.camera) return;
                 
-                // Three.js 会自动更新 XR 相机和渲染
-                // 但我们需要确保场景矩阵更新
-                if (this.scene) {
-                    this.scene.updateMatrixWorld(true);
+                // 更新场景矩阵
+                this.scene.updateMatrixWorld(true);
+                
+                // ✅ 必须手动调用 render（Three.js XR 需要）
+                // 确保场景和相机正确传递
+                if (this.renderer && this.scene && this.camera) {
+                    this.renderer.render(this.scene, this.camera);
                 }
             });
-            console.log('✅ XR 渲染循环已设置');
 
             //监听会话结束
             session.addEventListener('end', () => { 
