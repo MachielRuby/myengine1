@@ -219,7 +219,7 @@ export class XRController {
                     if (hasMesh && child.parent === this.scene) {
                         child.position.set(0, 0, -1);
                         child.visible = true;
-                        // child.frustumCulled = false;
+                        child.frustumCulled = false;
                         child.updateMatrixWorld(true);
                     }
                 }
