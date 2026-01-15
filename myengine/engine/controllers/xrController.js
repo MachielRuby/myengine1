@@ -29,9 +29,11 @@ export class XRController {
         // AR 相关
         this.referenceSpace = null;
         this.hitTestSource = null;
+        this.transientHitTestSource = null; // transient input hit-test
         this.models = []; // 存储所有模型引用
         this.modelScale = 0.5; // 默认缩放比例（缩小到 50%）
         this.modelPlaced = false; // 模型是否已放置
+        this.testReticleActive = false; // 测试十字星是否激活
         
         // 可视化相关
         this.reticle = null; // 十字星（reticle）
@@ -160,8 +162,10 @@ export class XRController {
                 this.session = null;
                 this.referenceSpace = null;
                 this.hitTestSource = null;
+                this.transientHitTestSource = null;
                 this.modelPlaced = false;
                 this.currentHitPose = null;
+                this.testReticleActive = false;
                 
                 //  清理可视化指示器
                 this._cleanupVisualIndicators();
@@ -293,7 +297,6 @@ export class XRController {
         this.planeIndicator.visible = false;
         this.scene.add(this.planeIndicator);
         
-        console.log(' 可视化指示器已创建');
     }
 
     //  初始化 hit-test
@@ -301,54 +304,92 @@ export class XRController {
         if (!this.referenceSpace) return;
         
         try {
-            // 从 viewer 空间创建 hit-test source
-            const viewerSpace = await this.referenceSpace.getOffsetReferenceSpace(
-                new XRRigidTransform(
-                    { x: 0, y: 0, z: 0, w: 1 },
-                    { x: 0, y: 0, z: 0 }
-                )
-            );
-            
-            this.hitTestSource = await session.requestHitTestSource({ space: viewerSpace });
-            console.log(' Hit-test 初始化成功，开始平面检测');
+            // 方法1: 优先尝试使用 transient input hit-test（从屏幕中心点检测，更可靠）
+            try {
+                this.transientHitTestSource = await session.requestHitTestSourceForTransientInput({
+                    profile: 'generic-touchscreen'
+                });
+            } catch (e) {
+                // 如果 transient input 不可用，使用普通 hit-test
+                const viewerSpace = await this.referenceSpace.getOffsetReferenceSpace(
+                    new XRRigidTransform(
+                        { x: 0, y: 0, z: 0, w: 1 },
+                        { x: 0, y: 0, z: 0 }
+                    )
+                );
+                
+                this.hitTestSource = await session.requestHitTestSource({ space: viewerSpace });
+            }
         } catch (error) {
-            console.warn('⚠️ Hit-test 不可用:', error);
+            // 如果都失败，使用测试模式：显示一个固定位置的十字星
             this.hitTestSource = null;
+            this.transientHitTestSource = null;
+            this._showTestReticle();
         }
     }
 
     //  处理 hit-test 并更新可视化
     _handleHitTest(frame) {
-        if (!this.hitTestSource || !frame) {
+        if (!frame) {
             return;
         }
         
-        const hitTestResults = frame.getHitTestResults(this.hitTestSource);
+        // 如果测试模式激活，保持测试十字星显示
+        if (this.testReticleActive) {
+            return;
+        }
         
-        if (hitTestResults.length > 0) {
-            // 找到有效的 hit-test 结果
-            const hit = hitTestResults[0];
-            const pose = hit.getPose(this.referenceSpace);
+        let hitPose = null;
+        
+        try {
+            // 优先使用 transient input hit-test（更可靠）
+            if (this.transientHitTestSource) {
+                const hitTestResults = frame.getHitTestResultsForTransientInput(this.transientHitTestSource);
+                
+                // 遍历所有输入源的结果
+                for (const inputSource of hitTestResults) {
+                    const results = inputSource.results;
+                    if (results && results.length > 0) {
+                        const hit = results[0];
+                        const pose = hit.getPose(this.referenceSpace);
+                        if (pose) {
+                            hitPose = pose;
+                            break;
+                        }
+                    }
+                }
+            }
             
-            if (pose) {
+            // 如果 transient input 没有结果，使用普通 hit-test
+            if (!hitPose && this.hitTestSource) {
+                const hitTestResults = frame.getHitTestResults(this.hitTestSource);
+                
+                if (hitTestResults.length > 0) {
+                    const hit = hitTestResults[0];
+                    hitPose = hit.getPose(this.referenceSpace);
+                }
+            }
+            
+            // 更新可视化
+            if (hitPose) {
                 // 保存当前 hit pose
-                this.currentHitPose = pose;
+                this.currentHitPose = hitPose;
+                
+                const position = new Vector3(
+                    hitPose.transform.position.x,
+                    hitPose.transform.position.y,
+                    hitPose.transform.position.z
+                );
+                
+                const orientation = new Quaternion(
+                    hitPose.transform.orientation.x,
+                    hitPose.transform.orientation.y,
+                    hitPose.transform.orientation.z,
+                    hitPose.transform.orientation.w
+                );
                 
                 // 更新十字星位置
                 if (this.reticle) {
-                    const position = new Vector3(
-                        pose.transform.position.x,
-                        pose.transform.position.y,
-                        pose.transform.position.z
-                    );
-                    
-                    const orientation = new Quaternion(
-                        pose.transform.orientation.x,
-                        pose.transform.orientation.y,
-                        pose.transform.orientation.z,
-                        pose.transform.orientation.w
-                    );
-                    
                     this.reticle.position.copy(position);
                     this.reticle.quaternion.copy(orientation);
                     this.reticle.visible = true;
@@ -356,37 +397,46 @@ export class XRController {
                 
                 // 更新平面指示器位置
                 if (this.planeIndicator) {
-                    const position = new Vector3(
-                        pose.transform.position.x,
-                        pose.transform.position.y,
-                        pose.transform.position.z
-                    );
-                    
-                    const orientation = new Quaternion(
-                        pose.transform.orientation.x,
-                        pose.transform.orientation.y,
-                        pose.transform.orientation.z,
-                        pose.transform.orientation.w
-                    );
-                    
                     this.planeIndicator.position.copy(position);
                     this.planeIndicator.quaternion.copy(orientation);
                     this.planeIndicator.rotation.x = -Math.PI / 2; // 保持水平
                     this.planeIndicator.visible = true;
                 }
+            } else {
+                // 没有检测到平面
+                this.currentHitPose = null;
+                
+                // 隐藏指示器
+                if (this.reticle) {
+                    this.reticle.visible = false;
+                }
+                
+                if (this.planeIndicator) {
+                    this.planeIndicator.visible = false;
+                }
             }
-        } else {
-            // 没有检测到平面
-            this.currentHitPose = null;
-            
-            if (this.reticle) {
-                this.reticle.visible = false;
-            }
-            
-            if (this.planeIndicator) {
-                this.planeIndicator.visible = false;
-            }
+        } catch (error) {
+            // 静默处理错误
         }
+    }
+    
+    // 显示测试十字星（用于调试，当 hit-test 不可用时）
+    _showTestReticle() {
+        if (!this.reticle) return;
+        
+        // 在用户前方 1.5 米，地面高度显示测试十字星
+        this.reticle.position.set(0, 0, -1.5);
+        this.reticle.quaternion.set(0, 0, 0, 1);
+        this.reticle.visible = true;
+        this.testReticleActive = true;
+        
+        // 创建一个假的 hit pose 用于点击测试
+        this.currentHitPose = {
+            transform: {
+                position: { x: 0, y: 0, z: -1.5 },
+                orientation: { x: 0, y: 0, z: 0, w: 1 }
+            }
+        };
     }
 
     //  设置点击事件处理
@@ -415,8 +465,23 @@ export class XRController {
             return;
         }
         
+        // 如果有测试十字星，使用测试位置
+        if (this.testReticleActive && this.currentHitPose) {
+            this._placeModels(this.currentHitPose.transform);
+            if (this.reticle) {
+                this.reticle.visible = false;
+            }
+            if (this.planeIndicator) {
+                this.planeIndicator.visible = false;
+            }
+            this.modelPlaced = true;
+            return;
+        }
+        
         if (!this.currentHitPose) {
-            console.log('⚠️ 未检测到平面，无法放置模型');
+            // 如果没有检测到平面，在默认位置放置模型
+            this._placeModelsAtDefaultPosition();
+            this.modelPlaced = true;
             return;
         }
         
@@ -433,7 +498,15 @@ export class XRController {
         }
         
         this.modelPlaced = true;
-        console.log(' 模型已放置到检测到的平面');
+    }
+    
+    // 在默认位置放置模型（当 hit-test 不可用时）
+    _placeModelsAtDefaultPosition() {
+        const defaultTransform = {
+            position: { x: 0, y: 0, z: -1.5 },
+            orientation: { x: 0, y: 0, z: 0, w: 1 }
+        };
+        this._placeModels(defaultTransform);
     }
 
     //  在指定位置放置模型
