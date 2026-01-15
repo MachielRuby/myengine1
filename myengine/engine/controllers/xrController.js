@@ -12,6 +12,7 @@ import {
     Quaternion,
     RingGeometry,
     CircleGeometry,
+    PlaneGeometry,
     MeshBasicMaterial,
     Mesh,
     MeshStandardMaterial
@@ -42,6 +43,7 @@ export class XRController {
         this.referenceSpace = null; 
         this.viewerSpace = null;
         this.reticle = null; // 十字星对象
+        this.testPlane = null; // 测试黄色面片
         this.currentHitMatrix = null; // 当前命中测试的矩阵
         this._hasHitTestResult = false; // 是否有 hit-test 结果
         
@@ -140,7 +142,7 @@ export class XRController {
 
         // 检查 WebXR 是否可用
         if (!this.isAvailable()) {
-            const error = new Error('浏览器不支持 WebXR API。请使用 Chrome Android 或 Safari iOS');
+            const error = new Error('浏览器不支持 WebXR API。请使用 Chrome Android 或 Edge');
             console.error('XRController:', error.message);
             this.events.emit('xr:error', { message: error.message, mode: 'ar', error });
             throw error;
@@ -400,7 +402,6 @@ export class XRController {
                     break;
                 } catch (e) {
                     console.warn(`XRController: 参考空间类型 ${spaceType} 不支持:`, e.message);
-                    // 继续尝试下一个类型
                 }
             }
             
@@ -494,6 +495,9 @@ export class XRController {
                 // 命中测试失败不是致命错误，继续执行
             }
 
+            // 创建测试黄色面片（用于确认渲染是否正常）
+            this._createTestPlane();
+            
             // 创建十字星
             this._createReticle();
             
@@ -506,16 +510,28 @@ export class XRController {
                 console.log('XRController: 已启用渲染器 XR 支持');
             }
             
-            // 停止引擎的渲染循环，避免冲突和错误的视锥体剔除
-        if (this.engine) {
-            this.engine.stop();
-            console.log('XRController: 已暂停引擎主循环');
-        }
-
-        // 使用手动渲染循环（参考 React Three XR 的实现）
-        // 这样可以完全控制渲染过程，确保场景被正确渲染
-        this._startManualRenderLoop();
-        console.log('XRController: 手动渲染循环已启动');
+            // ✅ 不要停止引擎循环，让 Three.js 自动管理
+            // Three.js 的 renderer.xr.setSession() 会自动处理渲染循环
+            
+            // ✅ 确保场景背景透明（AR 需要）
+            if (this.scene) {
+                this.scene.background = null;
+            }
+            if (this.renderer) {
+                this.renderer.setClearColor(0x000000, 0); // 透明背景
+            }
+            
+            // ✅ 使用 Three.js 的自动渲染循环
+            // renderer.xr.setSession() 已经自动启动了渲染循环
+            // 我们只需要在动画循环中更新逻辑，不手动渲染
+            this.renderer.setAnimationLoop((time, frame) => {
+                if (!this.isPresenting || !frame) return;
+                
+                // 更新十字星和 hit-test（不渲染，Three.js 会自动渲染）
+                this.update(frame);
+            });
+            
+            console.log('XRController: Three.js 自动渲染循环已启动');
 
         this.isPresenting = true;
             this.events.emit('xr:ar:started', { session });
@@ -550,18 +566,15 @@ export class XRController {
     _onSessionEnd() {
         this.isPresenting = false;
         
-        // 停止手动渲染循环
-        this._stopManualRenderLoop();
-        
-        // 恢复正常的渲染循环
+        // ✅ 停止 Three.js 的 XR 渲染循环
         if (this.renderer && this.renderer.setAnimationLoop) {
             this.renderer.setAnimationLoop(null);
         }
 
-        // 恢复引擎主循环
-        if (this.engine) {
-            this.engine.start();
-        }
+        // ✅ 不需要恢复引擎循环，Three.js 会自动处理
+        // if (this.engine) {
+        //     this.engine.start();
+        // }
         
         // 清理
         this._cleanup();
@@ -598,6 +611,24 @@ export class XRController {
         this.anchors.clear();
         this.anchoredObjects.clear();
 
+        // 清理测试面片
+        if (this.testPlane) {
+            this.scene.remove(this.testPlane);
+            if (this.testPlane.geometry) this.testPlane.geometry.dispose();
+            if (this.testPlane.material) this.testPlane.material.dispose();
+            this.testPlane = null;
+        }
+        
+        // 清理测试面片
+        if (this.testPlane) {
+            if (this.scene) {
+                this.scene.remove(this.testPlane);
+            }
+            if (this.testPlane.geometry) this.testPlane.geometry.dispose();
+            if (this.testPlane.material) this.testPlane.material.dispose();
+            this.testPlane = null;
+        }
+        
         // 清理十字星
         if (this.reticle) {
             this.scene.remove(this.reticle);
@@ -851,85 +882,38 @@ export class XRController {
     }
 
     /**
-     * 启动手动渲染循环（参考 React Three XR 的实现）
-     * @private
+     * ✅ 已移除手动渲染循环
+     * Three.js 的 renderer.xr.setSession() 会自动管理渲染循环
+     * 我们只需要在 setAnimationLoop 中更新逻辑即可
      */
-    _startManualRenderLoop() {
-        if (!this.session) {
-            console.warn('XRController: 无法启动渲染循环，会话不存在');
-            return;
-        }
-        
-        // 保存动画帧ID，用于停止循环
-        this._animationFrameId = null;
-        
-        // 定义渲染函数
-        const onXRFrame = (time, frame) => {
-            if (!this.session || !this.isPresenting) {
-                return;
-            }
-            
-            // 继续下一帧
-            this._animationFrameId = this.session.requestAnimationFrame(onXRFrame);
-            
-            // 获取渲染层
-            const glLayer = this.session.renderState.baseLayer;
-            if (!glLayer) {
-                return;
-            }
-            
-            // 设置渲染器大小
-            this.renderer.setSize(glLayer.framebufferWidth, glLayer.framebufferHeight);
-            this.renderer.clear();
-            
-            // 获取观察者姿态
-            const pose = frame.getViewerPose(this.referenceSpace);
-            if (!pose) {
-                return;
-            }
-            
-            // 渲染每个视图（AR通常是单视图，但保持兼容性）
-            for (const view of pose.views) {
-                const viewport = this.renderer.xr.getViewport(view);
-                this.renderer.setViewport(viewport.x, viewport.y, viewport.width, viewport.height);
-                
-                // 更新相机投影矩阵
-                this.camera.projectionMatrix.fromArray(view.projectionMatrix);
-                
-                const viewMatrix = new Matrix4();
-                viewMatrix.fromArray(view.transform.inverse.matrix);
-                this.camera.matrixWorldInverse.copy(viewMatrix);
-                this.camera.updateMatrixWorld(true);
-                
-                // 更新十字星和hit-test
-                this.update(frame);
-                
-                // 手动渲染场景
-                this.renderer.render(this.scene, this.camera);
-            }
-        };
-        
-        // 启动第一帧
-        this._animationFrameId = this.session.requestAnimationFrame(onXRFrame);
-        console.log('XRController: 手动渲染循环已启动');
-    }
     
     /**
-     * 停止手动渲染循环
-     * @private
-     */
-    _stopManualRenderLoop() {
-        // 注意:我们无法直接取消 requestAnimationFrame，但会在下一帧检查 isPresenting
-        this._animationFrameId = null;
-        console.log('XRController: 手动渲染循环已停止');
-    }
-    
-    /**
-     * 更新方法（每帧调用）
+     * 更新方法
      * @param {XRFrame} frame - XR 帧
      */
     update(frame) {
-        if (!this.isPresenting) return;
+        if (!this.isPresenting || !frame) return;
+        
+        // ✅ 更新测试面片位置（跟随相机，保持在相机前方2米）
+        if (this.testPlane && this.camera) {
+            // 使用相机的世界坐标
+            this.camera.updateMatrixWorld(true);
+            const cameraPos = new Vector3();
+            const cameraDir = new Vector3();
+            cameraPos.setFromMatrixPosition(this.camera.matrixWorld);
+            this.camera.getWorldDirection(cameraDir);
+            
+            // 在相机前方2米处
+            const planePos = new Vector3()
+                .copy(cameraPos)
+                .add(cameraDir.multiplyScalar(2));
+            
+            this.testPlane.position.copy(planePos);
+            this.testPlane.lookAt(cameraPos); // 面向相机
+            this.testPlane.rotation.x += Math.PI / 2; // 调整为水平
+            this.testPlane.updateMatrixWorld(true);
+            this.testPlane.visible = true;
+        }
         
         // 确保十字星存在
         if (!this.reticle) {
@@ -971,7 +955,7 @@ export class XRController {
                 }
             }
             
-            // 没有hit-test结果，显示在相机前方（强制显示）
+            // 没有hit-test结果，显示在相机前方
             this._showFallbackReticle(frame);
         }
 
