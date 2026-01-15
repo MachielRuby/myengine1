@@ -73,6 +73,31 @@ export class XRController {
                 this.renderer.setClearColor(0x000000, 0);
             }
 
+            if (this.scene) {
+                this.scene.traverse((child) => {
+                    // 查找模型（有几何体的对象）
+                    if (child.isGroup || child.isObject3D) {
+                        let hasMesh = false;
+                        child.traverse((obj) => {
+                            if (obj.isMesh && obj.geometry) {
+                                hasMesh = true;
+                            }
+                        });
+                        
+                        // 如果是模型，调整位置到用户前方
+                        if (hasMesh && child.parent === this.scene) {
+                            // 检查是否在原点附近（可能是刚加载的模型）
+                            const pos = child.position;
+                            if (Math.abs(pos.x) < 0.1 && Math.abs(pos.z) < 0.1) {
+                                // 移动到用户前方 2 米，高度 1.5 米
+                                child.position.set(0, 1.5, -2);
+                                console.log('✅ AR: 模型已移动到视野内', child.position);
+                            }
+                        }
+                    }
+                });
+            }
+
             //监听会话结束
             session.addEventListener('end', () => { 
                 this.isPresenting = false;
