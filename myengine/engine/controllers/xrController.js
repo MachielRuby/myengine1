@@ -200,55 +200,31 @@ export class XRController {
 
     //  准备模型：缩放大小并初始隐藏
     _prepareModels() {
-        if (!this.scene) return;
-        
-        this.models = [];
-        
-        this.scene.traverse((child) => {
-            // 跳过灯光和可视化指示器
-            if (child.type === 'AmbientLight' || child.type === 'DirectionalLight') return;
-            if (child === this.reticle || child === this.planeIndicator) return;
-            
-            // 查找模型
-            if (child.isGroup || child.isObject3D) {
-                let hasMesh = false;
-                child.traverse((obj) => {
-                    if (obj.isMesh && obj.geometry) {
-                        hasMesh = true;
-                    }
-                });
+         //  调整模型位置
+         if (this.scene) {
+            this.scene.traverse((child) => {
+                // 跳过灯光
+                if (child.type === 'AmbientLight' || child.type === 'DirectionalLight') return;
                 
-                // 如果是模型
-                if (hasMesh && child.parent === this.scene) {
-                    // 计算模型包围盒
-                    const box = new Box3();
-                    box.setFromObject(child);
-                    const size = box.getSize(new Vector3());
-                    const maxSize = Math.max(size.x, size.y, size.z);
+                // 查找模型
+                if (child.isGroup || child.isObject3D) {
+                    let hasMesh = false;
+                    child.traverse((obj) => {
+                        if (obj.isMesh && obj.geometry) {
+                            hasMesh = true;
+                        }
+                    });
                     
-                    // 如果模型太大（超过 1 米），进行缩放
-                    if (maxSize > 1.0) {
-                        const scale = this.modelScale / maxSize;
-                        child.scale.multiplyScalar(scale);
-                        console.log(` 模型已缩放: ${(scale * 100).toFixed(1)}%`);
-                    } else if (maxSize < 0.1) {
-                        // 如果模型太小，适当放大
-                        const scale = 0.1 / maxSize;
-                        child.scale.multiplyScalar(scale);
-                        console.log(` 模型已放大: ${(scale * 100).toFixed(1)}%`);
+                    // 如果是模型，调整位置到用户前方
+                    if (hasMesh && child.parent === this.scene) {
+                        child.position.set(0, 0, -1);
+                        child.visible = true;
+                        // child.frustumCulled = false;
+                        child.updateMatrixWorld(true);
                     }
-                    
-                    // 初始隐藏模型，等待点击放置
-                    child.visible = false;
-                    child.updateMatrixWorld(true);
-                    
-                    // 保存模型引用
-                    this.models.push(child);
                 }
-            }
-        });
-        
-        console.log(` 已准备 ${this.models.length} 个模型，等待放置`);
+            });
+        }
     }
 
     //  创建可视化指示器
