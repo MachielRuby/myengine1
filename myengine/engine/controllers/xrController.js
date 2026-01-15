@@ -104,55 +104,55 @@ export class XRController {
             //  添加点击事件监听（点击十字星放置模型）
             // this._setupClickHandlers(session);
 
-            // let lastTime = null;
-            // this.renderer.setAnimationLoop((time, frame) => {
-            //     if (!this.isPresenting || !this.scene || !this.camera) return;
+            let lastTime = null;
+            this.renderer.setAnimationLoop((time, frame) => {
+                if (!this.isPresenting || !this.scene || !this.camera) return;
                 
-            //     // 计算 deltaTime（time 是 DOMHighResTimeStamp，单位毫秒）
-            //     if (lastTime === null) {
-            //         lastTime = time;
-            //     }
-            //     const deltaTime = (time - lastTime) / 1000;
-            //     lastTime = time;
+                // 计算 deltaTime（time 是 DOMHighResTimeStamp，单位毫秒）
+                if (lastTime === null) {
+                    lastTime = time;
+                }
+                const deltaTime = (time - lastTime) / 1000;
+                lastTime = time;
                 
-            //     //  处理 hit-test 和更新可视化（每帧执行）
-            //     if (frame && !this.modelPlaced) {
-            //         this._handleHitTest(frame);
-            //     }
+                //  处理 hit-test 和更新可视化（每帧执行）
+                if (frame && !this.modelPlaced) {
+                    this._handleHitTest(frame);
+                }
                 
-            //     // 更新引擎控制器（模型旋转、动画、热点等）
-            //     if (this.engine) {
-            //         // 执行更新回调
-            //         for (const key in this.engine.onUpdateList) {
-            //             const cb = this.engine.onUpdateList[key];
-            //             if (typeof cb === 'function') cb(deltaTime);
-            //         }
+                // 更新引擎控制器（模型旋转、动画、热点等）
+                if (this.engine) {
+                    // 执行更新回调
+                    for (const key in this.engine.onUpdateList) {
+                        const cb = this.engine.onUpdateList[key];
+                        if (typeof cb === 'function') cb(deltaTime);
+                    }
                     
-            //         // 更新模型控制器
-            //         this.engine.modelController?.update?.(deltaTime);
+                    // 更新模型控制器
+                    this.engine.modelController?.update?.(deltaTime);
                     
-            //         // 更新热点控制器
-            //         this.engine.hotspotController?.update?.(deltaTime);
+                    // 更新热点控制器
+                    this.engine.hotspotController?.update?.(deltaTime);
                     
-            //         // 更新动画控制器
-            //         this.engine.animationController?.update?.(deltaTime);
-            //     }
+                    // 更新动画控制器
+                    this.engine.animationController?.update?.(deltaTime);
+                }
                 
-            //     // 更新场景矩阵
-            //     this.scene.updateMatrixWorld(true);
+                // 更新场景矩阵
+                this.scene.updateMatrixWorld(true);
                 
-            //     // 渲染场景
-            //     if (this.renderer && this.scene && this.camera) {
-            //         const composer = this.engine?.highlightController?.getComposer?.();
-            //         if (composer) {
-            //             composer.render();
-            //         } else {
-            //             this.renderer.render(this.scene, this.camera);
-            //         }
-            //         // 渲染标签
-            //         this.engine?.labelRenderer?.render?.(this.scene, this.camera);
-            //     }
-            // });
+                // 渲染场景
+                if (this.renderer && this.scene && this.camera) {
+                    const composer = this.engine?.highlightController?.getComposer?.();
+                    if (composer) {
+                        composer.render();
+                    } else {
+                        this.renderer.render(this.scene, this.camera);
+                    }
+                    // 渲染标签
+                    this.engine?.labelRenderer?.render?.(this.scene, this.camera);
+                }
+            });
 
             //监听会话结束
             session.addEventListener('end', () => { 
@@ -164,7 +164,7 @@ export class XRController {
                 this.currentHitPose = null;
                 
                 //  清理可视化指示器
-                this._cleanupVisualIndicators();
+                // this._cleanupVisualIndicators();
                 
                 // 停止 XR 渲染循环
                 if (this.renderer) {
@@ -219,7 +219,7 @@ export class XRController {
                     if (hasMesh && child.parent === this.scene) {
                         child.position.set(0, 0, -1);
                         child.visible = true;
-                        child.frustumCulled = false;
+                        // child.frustumCulled = false;
                         child.updateMatrixWorld(true);
                     }
                 }
