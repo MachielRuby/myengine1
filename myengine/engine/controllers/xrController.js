@@ -164,7 +164,7 @@ export class XRController {
                 this.currentHitPose = null;
                 
                 //  清理可视化指示器
-                // this._cleanupVisualIndicators();
+                this._cleanupVisualIndicators();
                 
                 // 停止 XR 渲染循环
                 if (this.renderer) {
