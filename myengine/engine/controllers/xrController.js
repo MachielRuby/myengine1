@@ -108,17 +108,49 @@ export class XRController {
             }
 
             // ✅ 关键：设置 Three.js XR 渲染循环
-            // 在 XR 模式下，必须手动调用 render
+            // 在 XR 模式下，必须手动调用 render 并更新控制器
+            let lastTime = null;
             this.renderer.setAnimationLoop((time, frame) => {
                 if (!this.isPresenting || !this.scene || !this.camera) return;
+                
+                // 计算 deltaTime（time 是 DOMHighResTimeStamp，单位毫秒）
+                if (lastTime === null) {
+                    lastTime = time;
+                }
+                const deltaTime = (time - lastTime) / 1000;
+                lastTime = time;
+                
+                // ✅ 更新引擎控制器（模型旋转、动画、热点等）
+                if (this.engine) {
+                    // 执行更新回调
+                    for (const key in this.engine.onUpdateList) {
+                        const cb = this.engine.onUpdateList[key];
+                        if (typeof cb === 'function') cb(deltaTime);
+                    }
+                    
+                    // 更新模型控制器（旋转等行为）
+                    this.engine.modelController?.update?.(deltaTime);
+                    
+                    // 更新热点控制器
+                    this.engine.hotspotController?.update?.(deltaTime);
+                    
+                    // 更新动画控制器（如果有 update 方法）
+                    this.engine.animationController?.update?.(deltaTime);
+                }
                 
                 // 更新场景矩阵
                 this.scene.updateMatrixWorld(true);
                 
-                // ✅ 必须手动调用 render（Three.js XR 需要）
-                // 确保场景和相机正确传递
+                // ✅ 渲染场景（支持高亮控制器的 composer）
                 if (this.renderer && this.scene && this.camera) {
-                    this.renderer.render(this.scene, this.camera);
+                    const composer = this.engine?.highlightController?.getComposer?.();
+                    if (composer) {
+                        composer.render();
+                    } else {
+                        this.renderer.render(this.scene, this.camera);
+                    }
+                    // 渲染标签
+                    this.engine?.labelRenderer?.render?.(this.scene, this.camera);
                 }
             });
 
