@@ -147,6 +147,7 @@ export class Engine {
             canvas: domElement instanceof HTMLCanvasElement ? domElement : undefined,
             antialias:true, 
             alpha: true,
+            xr: true,  
             powerPreference: "high-performance",  
             precision: "highp"  
         });
