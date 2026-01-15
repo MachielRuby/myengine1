@@ -91,9 +91,9 @@ export class XRController {
             });
 
             // ✅ 创建一个超大的测试立方体（确认渲染是否工作）
-产生的            // 使用 MeshBasicMaterial 不需要灯光，更容易看到
-            const { BoxGeometry, MeshBasicMaterial, Mesh } = await import('three');
+            // 使用 MeshBasicMaterial 不需要灯光，更容易看到
             if (this.scene && !this._testCube) {
+                const { BoxGeometry, MeshBasicMaterial } = await import('three');
                 const geometry = new BoxGeometry(2, 2, 2); // 2米 x 2米，超级大！
                 const material = new MeshBasicMaterial({ 
                     color: 0xff0000  // 红色，不需要灯光
