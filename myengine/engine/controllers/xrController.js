@@ -102,6 +102,22 @@ export class XRController {
 
             //  初始化 hit-test（立即开始平面检测）
             await this._initializeHitTest(session);
+            
+            // ✅ 确保测试十字星显示（如果 hit-test 不可用）
+            if (!this.testReticleActive && (!this.hitTestSource && !this.transientHitTestSource)) {
+                // 延迟一下，确保十字星已创建
+                setTimeout(() => {
+                    this._showTestReticle();
+                }, 200);
+            }
+            
+            // ✅ 确保测试十字星显示（如果 hit-test 不可用）
+            if (!this.testReticleActive && (!this.hitTestSource && !this.transientHitTestSource)) {
+                // 延迟一下，确保十字星已创建
+                setTimeout(() => {
+                    this._showTestReticle();
+                }, 200);
+            }
 
             //  添加点击事件监听（点击十字星放置模型）
             this._setupClickHandlers(session);
@@ -204,14 +220,15 @@ export class XRController {
 
     //  准备模型：缩放大小并初始隐藏
     _prepareModels() {
-        //  调整模型位置
-        if (!this.scene) return false;
+        if (!this.scene) return;
+        
         this.models = [];
+        
         this.scene.traverse((child) => {
-            // 跳过灯光
+            // 跳过灯光和可视化指示器
             if (child.type === 'AmbientLight' || child.type === 'DirectionalLight') return;
-            if (child == this.reticle || child == this.planeIndicator) return;
-
+            if (child === this.reticle || child === this.planeIndicator) return;
+            
             // 查找模型
             if (child.isGroup || child.isObject3D) {
                 let hasMesh = false;
@@ -221,16 +238,9 @@ export class XRController {
                     }
                 });
                 
-                // 如果是模型，调整位置到用户前方
-                if (hasMesh && child.parent === this.scene) {
-                    child.position.set(0, 0, -1);
-                    child.visible = true;
-                    // child.frustumCulled = false;
-                    child.updateMatrixWorld(true);
-                }
                 // 如果是模型
                 if (hasMesh && child.parent === this.scene) {
-                    //  计算模型包围盒并缩放
+                    // 计算模型包围盒并缩放
                     const box = new Box3();
                     box.setFromObject(child);
                     const size = box.getSize(new Vector3());
@@ -240,19 +250,17 @@ export class XRController {
                     if (maxSize > 1.0) {
                         const scale = this.modelScale / maxSize;
                         child.scale.multiplyScalar(scale);
-                        console.log(` 模型已缩放: ${(scale * 100).toFixed(1)}%`);
                     } else if (maxSize < 0.1) {
                         // 如果模型太小，适当放大
                         const scale = 0.1 / maxSize;
                         child.scale.multiplyScalar(scale);
-                        console.log(` 模型已放大: ${(scale * 100).toFixed(1)}%`);
                     }
                     
-                    //  初始隐藏模型，等待点击放置
+                    // ✅ 关键：初始隐藏模型，等待点击放置
                     child.visible = false;
                     child.updateMatrixWorld(true);
                     
-                    //  保存模型引用到数组
+                    // 保存模型引用到数组
                     this.models.push(child);
                 }
             }
@@ -422,7 +430,15 @@ export class XRController {
     
     // 显示测试十字星（用于调试，当 hit-test 不可用时）
     _showTestReticle() {
-        if (!this.reticle) return;
+        if (!this.reticle) {
+            // 如果十字星还没创建，等待一下再试
+            setTimeout(() => {
+                if (this.reticle) {
+                    this._showTestReticle();
+                }
+            }, 100);
+            return;
+        }
         
         // 在用户前方 1.5 米，地面高度显示测试十字星
         this.reticle.position.set(0, 0, -1.5);
