@@ -96,13 +96,13 @@ export class XRController {
             this._prepareModels();
 
             //  创建可视化指示器
-            // this._createVisualIndicators();
+            this._createVisualIndicators();
 
             //  初始化 hit-test（立即开始平面检测）
-            // await this._initializeHitTest(session);
+            await this._initializeHitTest(session);
 
             //  添加点击事件监听（点击十字星放置模型）
-            // this._setupClickHandlers(session);
+            this._setupClickHandlers(session);
 
             let lastTime = null;
             this.renderer.setAnimationLoop((time, frame) => {
