@@ -267,9 +267,9 @@ export class XRController {
                         child.scale.multiplyScalar(scale);
                     }
                     
-                    // 关键：初始隐藏模型，等待点击放置
-                    child.visible = false;
-                    child.updateMatrixWorld(true);
+                    // 关键：初始时不隐藏，但可以设置为半透明或不显示
+                    // 修改为：跟随光标移动（预览），直到放置
+                    // child.visible = false; 
                     
                     // 保存模型引用到数组
                     this.models.push(child);
@@ -281,8 +281,7 @@ export class XRController {
     //  创建可视化指示器
     _createVisualIndicators() {
         // 1. 创建十字星（reticle）- 显示在检测到的平面上
-        const ringGeometry = new RingGeometry(0.02, 0.03, 32);
-        const circleGeometry = new CircleGeometry(0.005, 32);
+        const ringGeometry = new RingGeometry(0.1, 0.11, 32); // 加大一点以便观察
         const reticleMaterial = new MeshBasicMaterial({ 
             color: 0xffffff, 
             transparent: true, 
@@ -290,32 +289,16 @@ export class XRController {
             depthWrite: false
         });
         
-        // 外圈
-        const outerRing = new Mesh(ringGeometry, reticleMaterial);
-        // 中心点
-        const centerDot = new Mesh(circleGeometry, reticleMaterial);
-        centerDot.position.z = 0.001;
-        
-        this.reticle = new Group();
-        this.reticle.add(outerRing);
-        this.reticle.add(centerDot);
+        this.reticle = new Mesh(ringGeometry, reticleMaterial);
+        this.reticle.matrixAutoUpdate = false; // 我们手动更新矩阵
         this.reticle.visible = false; // 初始隐藏，检测到平面后显示
         this.scene.add(this.reticle);
         
-        // 2. 创建平面指示器（半透明平面，显示检测到的平面）
-        const planeGeometry = new PlaneGeometry(0.3, 0.3);
-        const planeMaterial = new MeshBasicMaterial({ 
-            color: 0x00ff00, 
-            transparent: true, 
-            opacity: 0.2,
-            side: 2, // DoubleSide
-            depthWrite: false
-        });
-        this.planeIndicator = new Mesh(planeGeometry, planeMaterial);
-        this.planeIndicator.rotation.x = -Math.PI / 2; // 水平放置
-        this.planeIndicator.visible = false;
-        this.scene.add(this.planeIndicator);
-        
+        // 2. 移除旧的 planeIndicator，简化视觉
+        if (this.planeIndicator) {
+            this.scene.remove(this.planeIndicator);
+            this.planeIndicator = null;
+        }
     }
 
     //  初始化 hit-test
@@ -394,32 +377,23 @@ export class XRController {
                 // 保存当前 hit pose
                 this.currentHitPose = hitPose;
                 
-                const position = new Vector3(
-                    hitPose.transform.position.x,
-                    hitPose.transform.position.y,
-                    hitPose.transform.position.z
-                );
+                // 直接使用矩阵更新 reticle
+                this.reticle.visible = true;
+                this.reticle.matrix.fromArray(hitPose.transform.matrix);
                 
-                const orientation = new Quaternion(
-                    hitPose.transform.orientation.x,
-                    hitPose.transform.orientation.y,
-                    hitPose.transform.orientation.z,
-                    hitPose.transform.orientation.w
-                );
-                
-                // 更新十字星位置
-                if (this.reticle) {
-                    this.reticle.position.copy(position);
-                    this.reticle.quaternion.copy(orientation);
-                    this.reticle.visible = true;
-                }
-                
-                // 更新平面指示器位置
-                if (this.planeIndicator) {
-                    this.planeIndicator.position.copy(position);
-                    this.planeIndicator.quaternion.copy(orientation);
-                    this.planeIndicator.rotation.x = -Math.PI / 2; // 保持水平
-                    this.planeIndicator.visible = true;
+                // 如果模型尚未放置，让模型跟随 Reticle 移动（预览）
+                if (!this.modelPlaced) {
+                    this.models.forEach(model => {
+                        model.visible = true;
+                        // 将 HitPose 的矩阵应用到模型
+                        model.position.setFromMatrixPosition(this.reticle.matrix);
+                        model.quaternion.setFromRotationMatrix(this.reticle.matrix);
+                        
+                        // 可选：让模型始终朝向摄像机 (仅 Y 轴旋转)
+                        // const cameraPos = new Vector3();
+                        // this.camera.getWorldPosition(cameraPos);
+                        // model.lookAt(cameraPos.x, model.position.y, cameraPos.z);
+                    });
                 }
             } else {
                 // 没有检测到平面
@@ -430,8 +404,10 @@ export class XRController {
                     this.reticle.visible = false;
                 }
                 
-                if (this.planeIndicator) {
-                    this.planeIndicator.visible = false;
+                // 如果未放置，且未检测到平面，是否隐藏模型？
+                // 建议：保持上一次的位置或隐藏
+                if (!this.modelPlaced) {
+                    this.models.forEach(model => model.visible = false);
                 }
             }
         } catch (error) {
@@ -488,43 +464,32 @@ export class XRController {
     //  处理点击事件（点击十字星放置模型）
     _onSelect() {
         if (this.modelPlaced) {
-            // 模型已放置，忽略后续点击
+            // 如果已经放置，点击可以重新进入"拾取"模式（可选）
+            // this.modelPlaced = false; 
             return;
         }
         
         // 如果有测试十字星，使用测试位置
         if (this.testReticleActive && this.currentHitPose) {
-            this._placeModels(this.currentHitPose.transform);
-            if (this.reticle) {
-                this.reticle.visible = false;
-            }
-            if (this.planeIndicator) {
-                this.planeIndicator.visible = false;
-            }
             this.modelPlaced = true;
+            if (this.reticle) this.reticle.visible = false;
             return;
         }
         
         if (!this.currentHitPose) {
-            // 如果没有检测到平面，在默认位置放置模型
-            this._placeModelsAtDefaultPosition();
-            this.modelPlaced = true;
+            // 如果没有检测到平面，不允许放置
             return;
         }
         
-        // 放置模型到检测到的位置
-        this._placeModels(this.currentHitPose.transform);
+        // 确认放置
+        this.modelPlaced = true;
         
-        // 隐藏十字星和平面指示器
+        // 隐藏十字星
         if (this.reticle) {
             this.reticle.visible = false;
         }
         
-        if (this.planeIndicator) {
-            this.planeIndicator.visible = false;
-        }
-        
-        this.modelPlaced = true;
+        console.log('模型已放置在真实平面');
     }
     
     // 在默认位置放置模型（当 hit-test 不可用时）
