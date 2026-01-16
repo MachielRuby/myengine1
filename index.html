@@ -9,6 +9,12 @@
   </head>
   <body>
     <div id="app"></div>
+    <div id="ar-overlay" style="display: none;">
+        <div style="position: absolute; bottom: 50px; left: 50%; transform: translateX(-50%); display: flex; gap: 20px; z-index: 10000;">
+            <button id="scale-up" style="padding: 15px 30px; font-size: 24px; border-radius: 50%; width: 60px; height: 60px; border: none; background: rgba(255, 255, 255, 0.8);">+</button>
+            <button id="scale-down" style="padding: 15px 30px; font-size: 24px; border-radius: 50%; width: 60px; height: 60px; border: none; background: rgba(255, 255, 255, 0.8);">-</button>
+        </div>
+    </div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

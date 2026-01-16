@@ -58,8 +58,41 @@ arButton.addEventListener('click', async () => {
             return;
         }
         
-        await app.enterAR();
+        // 获取 overlay 元素
+        const overlay = document.getElementById('ar-overlay');
+        
+        await app.enterAR({
+            domOverlay: { root: overlay }
+        });
+        
+        // 显示 overlay
+        overlay.style.display = 'block';
         arButton.style.display = 'none';
+
+        // 绑定缩放事件
+        const scaleUpBtn = document.getElementById('scale-up');
+        const scaleDownBtn = document.getElementById('scale-down');
+        
+        const updateScale = (factor) => {
+            // 获取加载的模型 (ID 默认为路径)
+            const model = app.getModel('/model/01.glb');
+            if (model) {
+                model.scale.multiplyScalar(factor);
+            }
+        };
+
+        scaleUpBtn.onclick = (e) => {
+            e.stopPropagation(); // 防止点击穿透到 Canvas
+            e.preventDefault();
+            updateScale(1.1);
+        };
+        
+        scaleDownBtn.onclick = (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            updateScale(0.9);
+        };
+
     } catch (error) {
         console.error('AR 启动失败:', error);
         alert('启动 AR 失败: ' + error.message);

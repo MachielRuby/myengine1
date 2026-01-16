@@ -1659,11 +1659,11 @@ export class F3dApp {
 
     /************************** XR控制器接口部分********************** */
     //进入ar
-    async enterAR() {
+    async enterAR(options = {}) {
         if(!this.xrCtrl) {
             throw new Error("XR控制器未初始化");
         }
-        return await this.xrCtrl.startAR();
+        return await this.xrCtrl.startAR(options);
     }
 
     //退出ar

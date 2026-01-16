@@ -55,7 +55,7 @@ export class XRController {
     }
 
     //开启ar会话
-    async startAR()
+    async startAR(options = {})
     {
         if( this.isPresenting) {
             console.warn("AR 会话已启动");
@@ -67,10 +67,18 @@ export class XRController {
         }
 
         try {
-            const session = await navigator.xr.requestSession('immersive-ar', {
+            const sessionInit = {
                 requiredFeatures: ['local-floor','hit-test'],
                 optionalFeatures: ['hand-tracking', 'bounded-floor']
-            });
+            };
+
+            // 如果提供了 domOverlay 配置，添加到会话初始化选项中
+            if (options.domOverlay) {
+                sessionInit.optionalFeatures.push('dom-overlay');
+                sessionInit.domOverlay = options.domOverlay;
+            }
+
+            const session = await navigator.xr.requestSession('immersive-ar', sessionInit);
 
             // 存储会话
             this.session = session;
