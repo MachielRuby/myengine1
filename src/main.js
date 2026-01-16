@@ -75,9 +75,33 @@ arButton.addEventListener('click', async () => {
         
         // 记录初始缩放比例
         let baseScale = null;
-        const model = app.getModel('/model/01.glb');
+        
+        // 尝试获取模型，增加重试机制或查找逻辑
+        let model = app.getModel('/model/01.glb');
+        if (!model) {
+            console.warn('Model not found by ID, searching in scene...');
+            // 备用方案：遍历场景查找 Mesh
+            app.scene.traverse(child => {
+                if (child.isMesh && !model) {
+                    // 找到最顶层的父对象（排除场景本身）
+                    let parent = child;
+                    while (parent.parent && parent.parent !== app.scene) {
+                        parent = parent.parent;
+                    }
+                    model = parent;
+                }
+            });
+        }
+
         if (model) {
             baseScale = model.scale.clone();
+            console.log('Base scale captured:', baseScale);
+            // 更新 UI 显示当前状态
+            scaleLabel.textContent = `1.0x`;
+        } else {
+            console.error('Model not found for scaling!');
+            scaleLabel.textContent = 'Error';
+            scaleLabel.style.color = 'red';
         }
 
         // 监听滑动事件
@@ -86,11 +110,17 @@ arButton.addEventListener('click', async () => {
             const factor = parseFloat(e.target.value);
             
             // 更新标签文本
-            scaleLabel.textContent = factor.toFixed(1) + 'x';
+            if (baseScale) {
+                 scaleLabel.textContent = factor.toFixed(1) + 'x';
+            }
 
             if (model && baseScale) {
                 // 基于初始大小进行缩放
                 model.scale.copy(baseScale).multiplyScalar(factor);
+                
+                // 强制更新矩阵，确保渲染立即生效
+                model.updateMatrix();
+                model.updateMatrixWorld(true);
             }
         };
 
