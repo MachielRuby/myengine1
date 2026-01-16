@@ -14,6 +14,8 @@ import {
     Box3
 } from "three";
 
+
+// 事件系统导入
 import { EventBus } from "../core/events/eventEmitter.js";
 
 export class XRController {
@@ -23,7 +25,7 @@ export class XRController {
         this.scene = engine?.mainScene;
         this.camera = engine?.camera;
         this.session = null;
-        this.isPresenting = false;
+        this.isPresenting = false; 
         this.events = new EventBus();
         
         // AR 相关
@@ -66,10 +68,11 @@ export class XRController {
 
         try {
             const session = await navigator.xr.requestSession('immersive-ar', {
-                requiredFeatures: ['local-floor'],
-                optionalFeatures: ['hand-tracking','hit-test', 'bounded-floor']
+                requiredFeatures: ['local-floor','hit-test'],
+                optionalFeatures: ['hand-tracking', 'bounded-floor']
             });
 
+            // 存储会话
             this.session = session;
             
             // 保存参考空间到实例属性
@@ -94,7 +97,7 @@ export class XRController {
                 this.renderer.setClearColor(0x000000, 0);
             }
 
-            //  准备模型（缩放和初始隐藏）
+            //  准备模型
             this._prepareModels();
 
             //  创建可视化指示器
@@ -103,7 +106,7 @@ export class XRController {
             //  初始化 hit-test（立即开始平面检测）
             await this._initializeHitTest(session);
             
-            // ✅ 确保测试十字星显示（如果 hit-test 不可用）
+            // 确保测试十字星显示（如果 hit-test 不可用）
             if (!this.testReticleActive && (!this.hitTestSource && !this.transientHitTestSource)) {
                 // 延迟一下，确保十字星已创建
                 setTimeout(() => {
@@ -111,7 +114,7 @@ export class XRController {
                 }, 200);
             }
             
-            // ✅ 确保测试十字星显示（如果 hit-test 不可用）
+            // 确保测试十字星显示（如果 hit-test 不可用）
             if (!this.testReticleActive && (!this.hitTestSource && !this.transientHitTestSource)) {
                 // 延迟一下，确保十字星已创建
                 setTimeout(() => {
@@ -256,7 +259,7 @@ export class XRController {
                         child.scale.multiplyScalar(scale);
                     }
                     
-                    // ✅ 关键：初始隐藏模型，等待点击放置
+                    // 关键：初始隐藏模型，等待点击放置
                     child.visible = false;
                     child.updateMatrixWorld(true);
                     
