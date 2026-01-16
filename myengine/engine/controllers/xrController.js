@@ -267,8 +267,6 @@ export class XRController {
                         child.scale.multiplyScalar(scale);
                     }
                     
-                    // 关键：初始时不隐藏，但可以设置为半透明或不显示
-                    // 修改为：跟随光标移动（预览），直到放置
                     // child.visible = false; 
                     
                     // 保存模型引用到数组
