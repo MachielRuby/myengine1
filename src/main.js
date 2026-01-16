@@ -69,29 +69,34 @@ arButton.addEventListener('click', async () => {
         overlay.style.display = 'block';
         arButton.style.display = 'none';
 
-        // 绑定缩放事件
-        const scaleUpBtn = document.getElementById('scale-up');
-        const scaleDownBtn = document.getElementById('scale-down');
+        // 绑定滑动条事件
+        const slider = document.getElementById('scale-slider');
+        const scaleLabel = slider.previousElementSibling; // 获取 1x 标签
         
-        const updateScale = (factor) => {
-            // 获取加载的模型 (ID 默认为路径)
-            const model = app.getModel('/model/01.glb');
-            if (model) {
-                model.scale.multiplyScalar(factor);
+        // 记录初始缩放比例
+        let baseScale = null;
+        const model = app.getModel('/model/01.glb');
+        if (model) {
+            baseScale = model.scale.clone();
+        }
+
+        // 监听滑动事件
+        slider.oninput = (e) => {
+            e.stopPropagation();
+            const factor = parseFloat(e.target.value);
+            
+            // 更新标签文本
+            scaleLabel.textContent = factor.toFixed(1) + 'x';
+
+            if (model && baseScale) {
+                // 基于初始大小进行缩放
+                model.scale.copy(baseScale).multiplyScalar(factor);
             }
         };
 
-        scaleUpBtn.onclick = (e) => {
-            e.stopPropagation(); // 防止点击穿透到 Canvas
-            e.preventDefault();
-            updateScale(1.1);
-        };
-        
-        scaleDownBtn.onclick = (e) => {
-            e.stopPropagation();
-            e.preventDefault();
-            updateScale(0.9);
-        };
+        // 防止触摸事件穿透到 AR 场景
+        slider.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: false });
+        slider.addEventListener('touchmove', (e) => e.stopPropagation(), { passive: false });
 
     } catch (error) {
         console.error('AR 启动失败:', error);
