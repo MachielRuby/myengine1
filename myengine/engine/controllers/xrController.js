@@ -43,6 +43,7 @@ export class XRController {
         this.planeIndicator = null; // 平面指示器
         this.scanningIndicator = null; // 扫描提示面片（黄色，参考 webxr_test）
         this.currentHitPose = null; // 当前检测到的 hit pose
+        this.currentHitMatrix = null; // 当前检测到的 hit matrix（用于放置模型）
     }
 
     // 检查是否支持ar
@@ -120,8 +121,12 @@ export class XRController {
             this._prepareModels();
             
             // 确保所有模型在 AR 启动时都是隐藏的（双重保险）
+            // 递归隐藏模型及其所有子对象
             this.models.forEach(model => {
                 model.visible = false;
+                model.traverse((obj) => {
+                    obj.visible = false;
+                });
             });
 
             //  创建可视化指示器
@@ -290,7 +295,11 @@ export class XRController {
                 }
                 
                 // 初始隐藏模型，等待用户点击放置（参考 webxr_test 的实现）
-                child.visible = false; 
+                // 递归隐藏模型及其所有子对象
+                child.visible = false;
+                child.traverse((obj) => {
+                    obj.visible = false;
+                });
                 
                 // 保存模型引用到数组
                 this.models.push(child);
@@ -412,9 +421,14 @@ export class XRController {
         
         // 如果测试模式激活，保持测试十字星显示，但确保模型隐藏（除非已放置）
         if (this.testReticleActive) {
-            // 在测试模式下，如果模型未放置，确保模型隐藏
+            // 在测试模式下，如果模型未放置，确保模型隐藏（递归隐藏所有子对象）
             if (!this.modelPlaced) {
-                this.models.forEach(model => model.visible = false);
+                this.models.forEach(model => {
+                    model.visible = false;
+                    model.traverse((obj) => {
+                        obj.visible = false;
+                    });
+                });
             }
             return;
         }
@@ -460,8 +474,9 @@ export class XRController {
             
             // 更新可视化
             if (hitPose && hitMatrix) {
-                // 保存当前 hit pose
+                // 保存当前 hit pose 和 hit matrix（用于点击放置时使用）
                 this.currentHitPose = hitPose;
+                this.currentHitMatrix = hitMatrix.clone(); // 保存矩阵副本
                 
                 if (this.reticle) {
                     this.reticle.visible = true;
@@ -475,14 +490,18 @@ export class XRController {
                 }
                 
                 // 模型只在点击放置后才显示（参考 webxr_test 的实现，不显示预览）
-                // 如果模型尚未放置，保持隐藏状态
+                // 如果模型尚未放置，保持隐藏状态（递归隐藏所有子对象）
                 if (!this.modelPlaced) {
                     this.models.forEach(model => {
                         model.visible = false; // 不显示预览，只在点击放置后显示
+                        model.traverse((obj) => {
+                            obj.visible = false;
+                        });
                     });
                 }
             } else {
                 this.currentHitPose = null;
+                this.currentHitMatrix = null; // 清除 hit matrix
                 
                 if (this.reticle) {
                     this.reticle.visible = false;
@@ -493,7 +512,13 @@ export class XRController {
                 }
                 
                 if (!this.modelPlaced) {
-                    this.models.forEach(model => model.visible = false);
+                    // 递归隐藏模型及其所有子对象
+                    this.models.forEach(model => {
+                        model.visible = false;
+                        model.traverse((obj) => {
+                            obj.visible = false;
+                        });
+                    });
                 }
             }
         } catch (error) {
@@ -528,7 +553,13 @@ export class XRController {
         // 在测试模式下，确保模型隐藏（除非已放置）
         // 测试模式只是为了显示十字星，不应该显示模型预览
         if (!this.modelPlaced) {
-            this.models.forEach(model => model.visible = false);
+            // 递归隐藏模型及其所有子对象
+            this.models.forEach(model => {
+                model.visible = false;
+                model.traverse((obj) => {
+                    obj.visible = false;
+                });
+            });
         }
         
         // 创建一个假的 hit pose 用于点击测试
@@ -575,36 +606,38 @@ export class XRController {
             return;
         }
         
-        if (!this.currentHitPose) {
+        if (!this.currentHitPose || !this.currentHitMatrix) {
             // 如果没有检测到平面，不允许放置
             console.warn('⚠️ 无法放置模型：未检测到平面');
             return;
         }
         
-        // 确认放置：使用当前 hit pose 的矩阵固定模型位置
+        // 确认放置：使用当前 hit matrix 固定模型位置（参考 webxr_test 的实现）
         this.modelPlaced = true;
         
-        // 使用当前 reticle 的矩阵固定模型位置
-        if (this.reticle && this.reticle.visible) {
-            this.models.forEach(model => {
-                // 固定模型位置（使用 reticle 的矩阵）
-                model.matrix.copy(this.reticle.matrix);
-                model.matrix.decompose(
-                    model.position,
-                    model.quaternion,
-                    model.scale
-                );
-                model.matrixAutoUpdate = false; // 固定位置，不再自动更新
-                model.visible = true;
+        // 使用保存的 hit matrix 固定模型位置（而不是 reticle.matrix）
+        this.models.forEach(model => {
+            // 固定模型位置（使用 hit-test 矩阵，参考 webxr_test）
+            model.matrix.copy(this.currentHitMatrix);
+            model.matrix.decompose(
+                model.position,
+                model.quaternion,
+                model.scale
+            );
+            model.matrixAutoUpdate = false; // 固定位置，不再自动更新
+            // 显示模型及其所有子对象（点击放置后才显示）
+            model.visible = true;
+            model.traverse((obj) => {
+                obj.visible = true;
             });
-        }
+        });
         
         // 隐藏十字星
         if (this.reticle) {
             this.reticle.visible = false;
         }
         
-        console.log('✅ 模型已放置在真实平面');
+        console.log('✅ 模型已放置在真实平面（使用 hit-test 矩阵）');
     }
     
     // 在默认位置放置模型（当 hit-test 不可用时）
