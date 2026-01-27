@@ -474,18 +474,11 @@ export class XRController {
                     this.scanningIndicator.visible = false;
                 }
                 
-                // 如果模型尚未放置，让模型跟随 Reticle 移动（预览）
+                // 模型只在点击放置后才显示（参考 webxr_test 的实现，不显示预览）
+                // 如果模型尚未放置，保持隐藏状态
                 if (!this.modelPlaced) {
                     this.models.forEach(model => {
-                        model.visible = true;
-                        // 将 HitPose 的矩阵应用到模型
-                        model.matrix.copy(hitMatrix);
-                        model.matrix.decompose(
-                            model.position,
-                            model.quaternion,
-                            model.scale
-                        );
-                        model.matrixAutoUpdate = false;
+                        model.visible = false; // 不显示预览，只在点击放置后显示
                     });
                 }
             } else {
