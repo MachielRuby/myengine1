@@ -116,8 +116,13 @@ export class XRController {
                 this.renderer.setClearColor(0x000000, 0);
             }
 
-            //  准备模型
+            //  准备模型（会隐藏所有模型）
             this._prepareModels();
+            
+            // 确保所有模型在 AR 启动时都是隐藏的（双重保险）
+            this.models.forEach(model => {
+                model.visible = false;
+            });
 
             //  创建可视化指示器
             this._createVisualIndicators();
@@ -405,8 +410,12 @@ export class XRController {
             return;
         }
         
-        // 如果测试模式激活，保持测试十字星显示
+        // 如果测试模式激活，保持测试十字星显示，但确保模型隐藏（除非已放置）
         if (this.testReticleActive) {
+            // 在测试模式下，如果模型未放置，确保模型隐藏
+            if (!this.modelPlaced) {
+                this.models.forEach(model => model.visible = false);
+            }
             return;
         }
         
@@ -454,8 +463,6 @@ export class XRController {
                 // 保存当前 hit pose
                 this.currentHitPose = hitPose;
                 
-                // 直接使用矩阵更新 reticle（参考 webxr_test 的实现）
-                // hit-test 矩阵已经包含了正确的位置和旋转，直接使用即可
                 if (this.reticle) {
                     this.reticle.visible = true;
                     this.reticle.matrix.copy(hitMatrix);
@@ -482,20 +489,16 @@ export class XRController {
                     });
                 }
             } else {
-                // 没有检测到平面
                 this.currentHitPose = null;
                 
-                // 隐藏十字星
                 if (this.reticle) {
                     this.reticle.visible = false;
                 }
                 
-                // 显示扫描提示面片（提示用户正在扫描，参考 webxr_test）
                 if (this.scanningIndicator && !this.modelPlaced) {
                     this.scanningIndicator.visible = true;
                 }
                 
-                // 如果未放置，且未检测到平面，隐藏模型
                 if (!this.modelPlaced) {
                     this.models.forEach(model => model.visible = false);
                 }
@@ -527,6 +530,12 @@ export class XRController {
         // 隐藏扫描提示面片（测试模式下不需要）
         if (this.scanningIndicator) {
             this.scanningIndicator.visible = false;
+        }
+        
+        // 在测试模式下，确保模型隐藏（除非已放置）
+        // 测试模式只是为了显示十字星，不应该显示模型预览
+        if (!this.modelPlaced) {
+            this.models.forEach(model => model.visible = false);
         }
         
         // 创建一个假的 hit pose 用于点击测试
