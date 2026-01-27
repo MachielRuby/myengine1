@@ -41,6 +41,7 @@ export class XRController {
         // 可视化相关
         this.reticle = null; // 十字星（reticle）
         this.planeIndicator = null; // 平面指示器
+        this.scanningIndicator = null; // 扫描提示面片（黄色，参考 webxr_test）
         this.currentHitPose = null; // 当前检测到的 hit pose
     }
 
@@ -120,6 +121,11 @@ export class XRController {
 
             //  创建可视化指示器
             this._createVisualIndicators();
+            
+            // 初始显示扫描提示面片（提示用户正在扫描）
+            if (this.scanningIndicator && !this.testReticleActive) {
+                this.scanningIndicator.visible = true;
+            }
 
             //  初始化 hit-test（立即开始平面检测）
             await this._initializeHitTest(session);
@@ -329,7 +335,22 @@ export class XRController {
         this.reticle = reticleGroup;
         this.scene.add(this.reticle);
         
-        // 2. 移除旧的 planeIndicator，简化视觉
+        // 2. 创建扫描提示面片（黄色，参考 webxr_test 的实现）
+        // 当未检测到平面时显示，提示用户正在扫描
+        const scanningGeometry = new PlaneGeometry(1, 0.3);
+        const scanningMaterial = new MeshBasicMaterial({ 
+            color: 0xffff00, // 黄色
+            transparent: true, 
+            opacity: 0.8,
+            side: 2 // DoubleSide
+        });
+        this.scanningIndicator = new Mesh(scanningGeometry, scanningMaterial);
+        // 放置在用户前方，稍微偏上
+        this.scanningIndicator.position.set(0, 0.5, -1);
+        this.scanningIndicator.visible = false; // 初始隐藏，在扫描时显示
+        this.scene.add(this.scanningIndicator);
+        
+        // 3. 移除旧的 planeIndicator，简化视觉
         if (this.planeIndicator) {
             this.scene.remove(this.planeIndicator);
             this.planeIndicator = null;
@@ -438,6 +459,11 @@ export class XRController {
                     this.reticle.matrixAutoUpdate = false;
                 }
                 
+                // 隐藏扫描提示面片（已检测到平面）
+                if (this.scanningIndicator) {
+                    this.scanningIndicator.visible = false;
+                }
+                
                 // 如果模型尚未放置，让模型跟随 Reticle 移动（预览）
                 if (!this.modelPlaced) {
                     this.models.forEach(model => {
@@ -456,9 +482,14 @@ export class XRController {
                 // 没有检测到平面
                 this.currentHitPose = null;
                 
-                // 隐藏指示器
+                // 隐藏十字星
                 if (this.reticle) {
                     this.reticle.visible = false;
+                }
+                
+                // 显示扫描提示面片（提示用户正在扫描，参考 webxr_test）
+                if (this.scanningIndicator && !this.modelPlaced) {
+                    this.scanningIndicator.visible = true;
                 }
                 
                 // 如果未放置，且未检测到平面，隐藏模型
@@ -489,6 +520,11 @@ export class XRController {
         this.reticle.quaternion.set(0, 0, 0, 1);
         this.reticle.visible = true;
         this.testReticleActive = true;
+        
+        // 隐藏扫描提示面片（测试模式下不需要）
+        if (this.scanningIndicator) {
+            this.scanningIndicator.visible = false;
+        }
         
         // 创建一个假的 hit pose 用于点击测试
         this.currentHitPose = {
@@ -604,6 +640,11 @@ export class XRController {
         if (this.reticle) {
             this.scene.remove(this.reticle);
             this.reticle = null;
+        }
+        
+        if (this.scanningIndicator) {
+            this.scene.remove(this.scanningIndicator);
+            this.scanningIndicator = null;
         }
         
         if (this.planeIndicator) {
