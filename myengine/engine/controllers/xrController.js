@@ -30,7 +30,7 @@ export class XRController {
         
         // AR 相关
         this.referenceSpace = null;
-        this.viewerSpace = null; // viewer 空间（用于 hit-test）
+        this.viewerSpace = null; // viewer 空间
         this.hitTestSource = null;
         this.transientHitTestSource = null; // transient input hit-test
         this.models = []; // 存储所有模型引用
@@ -42,7 +42,7 @@ export class XRController {
         this.reticle = null; // 十字星（reticle）
         this.planeIndicator = null; // 平面指示器
         this.scanningIndicator = null; // 扫描提示面片（黄色，参考 webxr_test）
-        this.currentHitPose = null; // 当前检测到的 hit pose
+        this.currentHitPose = null; // 当前检测到的 hit poseww
         this.currentHitMatrix = null; // 当前检测到的 hit matrix（用于放置模型）
     }
 
@@ -175,6 +175,19 @@ export class XRController {
                     this._handleHitTest(frame);
                 }
                 
+                // 强制确保模型在未放置时保持隐藏（防止其他控制器修改可见性）
+                if (!this.modelPlaced) {
+                    this.models.forEach(model => {
+                        if (model.visible) {
+                            // 如果模型被其他代码设置为可见，强制隐藏
+                            model.visible = false;
+                            model.traverse((obj) => {
+                                obj.visible = false;
+                            });
+                        }
+                    });
+                }
+                
                 // 更新引擎控制器（模型旋转、动画、热点等）
                 if (this.engine) {
                     // 执行更新回调
@@ -183,7 +196,7 @@ export class XRController {
                         if (typeof cb === 'function') cb(deltaTime);
                     }
                     
-                    // 更新模型控制器
+                    // 更新模型控制器（注意：模型控制器可能会修改模型状态，但我们会在之后强制隐藏）
                     this.engine.modelController?.update?.(deltaTime);
                     
                     // 更新热点控制器
@@ -191,6 +204,19 @@ export class XRController {
                     
                     // 更新动画控制器
                     this.engine.animationController?.update?.(deltaTime);
+                }
+                
+                // 再次强制确保模型在未放置时保持隐藏（在更新后再次检查）
+                if (!this.modelPlaced) {
+                    this.models.forEach(model => {
+                        if (model.visible) {
+                            // 如果模型被其他代码设置为可见，强制隐藏
+                            model.visible = false;
+                            model.traverse((obj) => {
+                                obj.visible = false;
+                            });
+                        }
+                    });
                 }
                 
                 // 更新场景矩阵
