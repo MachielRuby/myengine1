@@ -30,6 +30,7 @@ export class XRController {
         
         // AR 相关
         this.referenceSpace = null;
+        this.viewerSpace = null; // viewer 空间（用于 hit-test）
         this.hitTestSource = null;
         this.transientHitTestSource = null; // transient input hit-test
         this.models = []; // 存储所有模型引用
@@ -83,8 +84,17 @@ export class XRController {
             // 存储会话
             this.session = session;
             
-            // 保存参考空间到实例属性
+            // 保存参考空间到实例属性（用于渲染和模型定位）
             this.referenceSpace = await session.requestReferenceSpace('local-floor');
+            
+            // 创建 viewer 空间（用于 hit-test，参考 webxr_test 的实现）
+            try {
+                this.viewerSpace = await session.requestReferenceSpace('viewer');
+                console.log('✅ Viewer 空间已创建，用于 hit-test');
+            } catch (e) {
+                console.warn('⚠️ 无法创建 viewer 空间，将使用 referenceSpace:', e);
+                this.viewerSpace = this.referenceSpace;
+            }
 
             // 停止引擎的动画循环，避免与 XR 渲染冲突
             if (this.engine) {
@@ -188,6 +198,7 @@ export class XRController {
                 this.isPresenting = false;
                 this.session = null;
                 this.referenceSpace = null;
+                this.viewerSpace = null;
                 this.hitTestSource = null;
                 this.transientHitTestSource = null;
                 this.modelPlaced = false;
@@ -276,20 +287,46 @@ export class XRController {
         });
     }
 
-    //  创建可视化指示器
+    //  创建可视化指示器（参考 webxr_test 的实现）
     _createVisualIndicators() {
         // 1. 创建十字星（reticle）- 显示在检测到的平面上
-        const ringGeometry = new RingGeometry(0.1, 0.11, 32); // 加大一点以便观察
+        // 参考 webxr_test：使用内圈和外圈，更清晰
+        const MODEL_TARGET_SIZE = 0.5;
+        const RETICLE_SCALE = 0.25;
+        const innerRadius = MODEL_TARGET_SIZE * RETICLE_SCALE * 0.8;
+        const outerRadius = MODEL_TARGET_SIZE * RETICLE_SCALE * 1.2;
+        const centerRadius = MODEL_TARGET_SIZE * RETICLE_SCALE * 0.5;
+        
+        // 创建十字星组
+        const reticleGroup = new Group();
+        reticleGroup.matrixAutoUpdate = false;
+        reticleGroup.visible = false;
+        
+        // 外圈
+        const ringGeometry = new RingGeometry(innerRadius, outerRadius, 32);
         const reticleMaterial = new MeshBasicMaterial({ 
             color: 0xffffff, 
             transparent: true, 
             opacity: 0.8,
             depthWrite: false
         });
+        const ring = new Mesh(ringGeometry, reticleMaterial);
+        reticleGroup.add(ring);
         
-        this.reticle = new Mesh(ringGeometry, reticleMaterial);
-        this.reticle.matrixAutoUpdate = false; // 我们手动更新矩阵
-        this.reticle.visible = false; // 初始隐藏，检测到平面后显示
+        // 中心点（几乎贴地）
+        const centerGeometry = new CircleGeometry(centerRadius, 32);
+        const centerMaterial = new MeshBasicMaterial({ 
+            color: 0xffffff, 
+            transparent: true, 
+            opacity: 1,
+            depthWrite: false
+        });
+        const center = new Mesh(centerGeometry, centerMaterial);
+        center.position.y = 0.001; // 稍微抬高，避免 z-fighting
+        center.rotation.x = -Math.PI / 2; // 旋转到水平面
+        reticleGroup.add(center);
+        
+        this.reticle = reticleGroup;
         this.scene.add(this.reticle);
         
         // 2. 移除旧的 planeIndicator，简化视觉
@@ -299,9 +336,13 @@ export class XRController {
         }
     }
 
-    //  初始化 hit-test
+    //  初始化 hit-test（参考 webxr_test 的实现）
     async _initializeHitTest(session) {
-        if (!this.referenceSpace) return;
+        if (!this.viewerSpace && !this.referenceSpace) {
+            console.warn('⚠️ 无法初始化 hit-test：缺少参考空间');
+            this._showTestReticle();
+            return;
+        }
         
         try {
             // 方法1: 优先尝试使用 transient input hit-test（从屏幕中心点检测，更可靠）
@@ -309,18 +350,25 @@ export class XRController {
                 this.transientHitTestSource = await session.requestHitTestSourceForTransientInput({
                     profile: 'generic-touchscreen'
                 });
+                console.log('✅ Transient input hit-test 已初始化');
             } catch (e) {
-                // 如果 transient input 不可用，使用普通 hit-test
-                const viewerSpace = await this.referenceSpace.getOffsetReferenceSpace(
-                    new XRRigidTransform(
-                        { x: 0, y: 0, z: 0, w: 1 },
-                        { x: 0, y: 0, z: 0 }
-                    )
-                );
+                console.log('ℹ️ Transient input hit-test 不可用，使用普通 hit-test:', e.message);
                 
-                this.hitTestSource = await session.requestHitTestSource({ space: viewerSpace });
+                // 方法2: 使用 viewer 空间进行 hit-test（参考 webxr_test 的实现）
+                // 这是关键：必须使用 'viewer' 空间，而不是从 referenceSpace 创建偏移空间
+                const hitTestSpace = this.viewerSpace || this.referenceSpace;
+                
+                if (!hitTestSpace) {
+                    throw new Error('无法获取 hit-test 空间');
+                }
+                
+                this.hitTestSource = await session.requestHitTestSource({ 
+                    space: hitTestSpace 
+                });
+                console.log('✅ 普通 hit-test 已初始化（使用 viewer 空间）');
             }
         } catch (error) {
+            console.error('❌ Hit-test 初始化失败:', error);
             // 如果都失败，使用测试模式：显示一个固定位置的十字星
             this.hitTestSource = null;
             this.transientHitTestSource = null;
@@ -328,7 +376,7 @@ export class XRController {
         }
     }
 
-    //  处理 hit-test 并更新可视化
+    //  处理 hit-test 并更新可视化（参考 webxr_test 的实现）
     _handleHitTest(frame) {
         if (!frame) {
             return;
@@ -340,6 +388,7 @@ export class XRController {
         }
         
         let hitPose = null;
+        let hitMatrix = null;
         
         try {
             // 优先使用 transient input hit-test（更可靠）
@@ -351,9 +400,11 @@ export class XRController {
                     const results = inputSource.results;
                     if (results && results.length > 0) {
                         const hit = results[0];
+                        // 使用 referenceSpace（local-floor）来获取世界坐标
                         const pose = hit.getPose(this.referenceSpace);
                         if (pose) {
                             hitPose = pose;
+                            hitMatrix = new Matrix4().fromArray(pose.transform.matrix);
                             break;
                         }
                     }
@@ -366,31 +417,39 @@ export class XRController {
                 
                 if (hitTestResults.length > 0) {
                     const hit = hitTestResults[0];
+                    // 关键：使用 referenceSpace（local-floor）来获取世界坐标
+                    // 虽然 hit-test source 是用 viewer 空间创建的，但获取 pose 时要用 referenceSpace
                     hitPose = hit.getPose(this.referenceSpace);
+                    if (hitPose) {
+                        hitMatrix = new Matrix4().fromArray(hitPose.transform.matrix);
+                    }
                 }
             }
             
             // 更新可视化
-            if (hitPose) {
+            if (hitPose && hitMatrix) {
                 // 保存当前 hit pose
                 this.currentHitPose = hitPose;
                 
-                // 直接使用矩阵更新 reticle
-                this.reticle.visible = true;
-                this.reticle.matrix.fromArray(hitPose.transform.matrix);
+                // 直接使用矩阵更新 reticle（参考 webxr_test 的实现）
+                if (this.reticle) {
+                    this.reticle.visible = true;
+                    this.reticle.matrix.copy(hitMatrix);
+                    this.reticle.matrixAutoUpdate = false;
+                }
                 
                 // 如果模型尚未放置，让模型跟随 Reticle 移动（预览）
                 if (!this.modelPlaced) {
                     this.models.forEach(model => {
                         model.visible = true;
                         // 将 HitPose 的矩阵应用到模型
-                        model.position.setFromMatrixPosition(this.reticle.matrix);
-                        model.quaternion.setFromRotationMatrix(this.reticle.matrix);
-                        
-                        // 可选：让模型始终朝向摄像机 (仅 Y 轴旋转)
-                        // const cameraPos = new Vector3();
-                        // this.camera.getWorldPosition(cameraPos);
-                        // model.lookAt(cameraPos.x, model.position.y, cameraPos.z);
+                        model.matrix.copy(hitMatrix);
+                        model.matrix.decompose(
+                            model.position,
+                            model.quaternion,
+                            model.scale
+                        );
+                        model.matrixAutoUpdate = false;
                     });
                 }
             } else {
@@ -402,14 +461,14 @@ export class XRController {
                     this.reticle.visible = false;
                 }
                 
-                // 如果未放置，且未检测到平面，是否隐藏模型？
-                // 建议：保持上一次的位置或隐藏
+                // 如果未放置，且未检测到平面，隐藏模型
                 if (!this.modelPlaced) {
                     this.models.forEach(model => model.visible = false);
                 }
             }
         } catch (error) {
-            // 静默处理错误
+            // 记录错误以便调试
+            console.warn('Hit-test 处理错误:', error);
         }
     }
     
@@ -471,23 +530,40 @@ export class XRController {
         if (this.testReticleActive && this.currentHitPose) {
             this.modelPlaced = true;
             if (this.reticle) this.reticle.visible = false;
+            console.log('✅ 模型已放置在测试位置');
             return;
         }
         
         if (!this.currentHitPose) {
             // 如果没有检测到平面，不允许放置
+            console.warn('⚠️ 无法放置模型：未检测到平面');
             return;
         }
         
-        // 确认放置
+        // 确认放置：使用当前 hit pose 的矩阵固定模型位置
         this.modelPlaced = true;
+        
+        // 使用当前 reticle 的矩阵固定模型位置
+        if (this.reticle && this.reticle.visible) {
+            this.models.forEach(model => {
+                // 固定模型位置（使用 reticle 的矩阵）
+                model.matrix.copy(this.reticle.matrix);
+                model.matrix.decompose(
+                    model.position,
+                    model.quaternion,
+                    model.scale
+                );
+                model.matrixAutoUpdate = false; // 固定位置，不再自动更新
+                model.visible = true;
+            });
+        }
         
         // 隐藏十字星
         if (this.reticle) {
             this.reticle.visible = false;
         }
         
-        console.log('模型已放置在真实平面');
+        console.log('✅ 模型已放置在真实平面');
     }
     
     // 在默认位置放置模型（当 hit-test 不可用时）
