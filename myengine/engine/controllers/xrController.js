@@ -255,7 +255,7 @@ export class XRController {
         this.scene.traverse((child) => {
             // 跳过灯光和可视化指示器
             if (child.type === 'AmbientLight' || child.type === 'DirectionalLight') return;
-            if (child === this.reticle || child === this.planeIndicator) return;
+            if (child === this.reticle || child === this.planeIndicator || child === this.scanningIndicator) return;
             
             // 查找模型
             if (child.isGroup || child.isObject3D) {
@@ -279,15 +279,16 @@ export class XRController {
                         const scale = this.modelScale / maxSize;
                         child.scale.multiplyScalar(scale);
                     } else if (maxSize < 0.1) {
-                        // 如果模型太小，适当放大
-                        const scale = 0.1 / maxSize;
-                        child.scale.multiplyScalar(scale);
-                    }
-                    
-                    // child.visible = false; 
-                    
-                    // 保存模型引用到数组
-                    this.models.push(child);
+                    // 如果模型太小，适当放大
+                    const scale = 0.1 / maxSize;
+                    child.scale.multiplyScalar(scale);
+                }
+                
+                // 初始隐藏模型，等待用户点击放置（参考 webxr_test 的实现）
+                child.visible = false; 
+                
+                // 保存模型引用到数组
+                this.models.push(child);
                 }
             }
         });
