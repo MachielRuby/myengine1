@@ -309,7 +309,7 @@ export class XRController {
         reticleGroup.matrixAutoUpdate = false;
         reticleGroup.visible = false;
         
-        // 外圈
+        // 外圈（需要旋转到水平面，贴合地面）
         const ringGeometry = new RingGeometry(innerRadius, outerRadius, 32);
         const reticleMaterial = new MeshBasicMaterial({ 
             color: 0xffffff, 
@@ -318,6 +318,7 @@ export class XRController {
             depthWrite: false
         });
         const ring = new Mesh(ringGeometry, reticleMaterial);
+        ring.rotation.x = -Math.PI / 2; // 旋转到水平面，贴合地面（关键修复！）
         reticleGroup.add(ring);
         
         // 中心点（几乎贴地）
@@ -454,10 +455,16 @@ export class XRController {
                 this.currentHitPose = hitPose;
                 
                 // 直接使用矩阵更新 reticle（参考 webxr_test 的实现）
+                // hit-test 矩阵已经包含了正确的位置和旋转，直接使用即可
                 if (this.reticle) {
                     this.reticle.visible = true;
                     this.reticle.matrix.copy(hitMatrix);
                     this.reticle.matrixAutoUpdate = false;
+                    
+                    // 调试：检查矩阵的位置（可选，用于诊断）
+                    // const pos = new Vector3();
+                    // this.reticle.matrix.decompose(pos, new Quaternion(), new Vector3());
+                    // console.log('Hit-test 位置:', pos);
                 }
                 
                 // 隐藏扫描提示面片（已检测到平面）
